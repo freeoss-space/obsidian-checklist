@@ -82,29 +82,62 @@ export class ChecklistManager {
         properties: Record<string, string | number | boolean>,
         description: string
     ): Promise<TFile> {
+        const [file] = await this.addItems(checklistId, [{ name, properties, description }]);
+        return file;
+    }
+
+    /**
+     * Adds multiple items (markdown files) to a checklist folder at once.
+     */
+    async addItems(
+        checklistId: string,
+        items: Array<{
+            name: string;
+            properties: Record<string, string | number | boolean>;
+            description: string;
+        }>
+    ): Promise<TFile[]> {
+        if (items.length === 0) return [];
+
         const checklist = this.findChecklist(checklistId);
+        const files: TFile[] = [];
 
-        // Apply default values for missing properties
-        const mergedProperties: Record<string, string | number | boolean> = {};
-        for (const prop of checklist.properties) {
+        for (const item of items) {
+            const mergedProperties = this.mergeProperties(checklist.properties, item.properties);
+            const frontmatter = generateFrontmatter(mergedProperties);
+            const content = item.description
+                ? `${frontmatter}\n\n${item.description}`
+                : `${frontmatter}\n`;
+
+            const filePath = `${checklist.folderPath}/${item.name}.md`;
+            const file = await this.app.vault.create(filePath, content);
+            files.push(file);
+        }
+
+        return files;
+    }
+
+    /**
+     * Merges provided properties with defaults from property definitions.
+     */
+    private mergeProperties(
+        definitions: PropertyDefinition[],
+        properties: Record<string, string | number | boolean>
+    ): Record<string, string | number | boolean> {
+        const merged: Record<string, string | number | boolean> = {};
+        for (const prop of definitions) {
             if (prop.name in properties) {
-                mergedProperties[prop.name] = properties[prop.name];
+                merged[prop.name] = properties[prop.name];
             } else if (prop.defaultValue !== undefined) {
-                mergedProperties[prop.name] = prop.defaultValue;
+                merged[prop.name] = prop.defaultValue;
             }
         }
-        // Include any extra properties not in the definition
         for (const [key, value] of Object.entries(properties)) {
-            if (!(key in mergedProperties)) {
-                mergedProperties[key] = value;
+            if (!(key in merged)) {
+                merged[key] = value;
             }
         }
-
-        const frontmatter = generateFrontmatter(mergedProperties);
-        const content = description ? `${frontmatter}\n\n${description}` : `${frontmatter}\n`;
-
-        const filePath = `${checklist.folderPath}/${name}.md`;
-        return await this.app.vault.create(filePath, content);
+        return merged;
     }
 
     /**

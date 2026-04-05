@@ -4,6 +4,7 @@ import { ChecklistView } from "./views/ChecklistView";
 import { ChecklistManager } from "./services/ChecklistManager";
 import { CreateListModal } from "./modals/CreateListModal";
 import { AddItemModal } from "./modals/AddItemModal";
+import { AddItemsModal } from "./modals/AddItemsModal";
 import {
     ChecklistPluginSettings,
     DEFAULT_SETTINGS,
@@ -26,7 +27,8 @@ export default class ChecklistPlugin extends Plugin {
                 leaf,
                 this.manager,
                 () => this.openCreateListModal(),
-                () => this.openAddItemModal()
+                () => this.openAddItemModal(),
+                () => this.openAddItemsModal()
             );
         });
 
@@ -52,6 +54,12 @@ export default class ChecklistPlugin extends Plugin {
             id: "add-checklist-item",
             name: "Add item to active checklist",
             callback: () => this.openAddItemModal(),
+        });
+
+        this.addCommand({
+            id: "add-checklist-items",
+            name: "Add multiple items to active checklist",
+            callback: () => this.openAddItemsModal(),
         });
     }
 
@@ -107,6 +115,27 @@ export default class ChecklistPlugin extends Plugin {
             async (name, properties, description) => {
                 await this.manager.addItem(active.id, name, properties, description);
                 new Notice(`Item "${name}" added.`);
+                this.refreshView();
+            }
+        ).open();
+    }
+
+    /**
+     * Opens the add multiple items modal for the active checklist.
+     */
+    openAddItemsModal(): void {
+        const active = this.manager.getActiveChecklist();
+        if (!active) {
+            new Notice("No active checklist. Create one first.");
+            return;
+        }
+
+        new AddItemsModal(
+            this.app,
+            active.properties,
+            async (items) => {
+                const files = await this.manager.addItems(active.id, items);
+                new Notice(`${files.length} item(s) added.`);
                 this.refreshView();
             }
         ).open();

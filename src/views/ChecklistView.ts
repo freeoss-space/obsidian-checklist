@@ -12,17 +12,20 @@ export class ChecklistView extends ItemView {
     private contentContainer: HTMLElement;
     private onCreateList: () => void;
     private onAddItem: () => void;
+    private onAddItems: () => void;
 
     constructor(
         leaf: WorkspaceLeaf,
         manager: ChecklistManager,
         onCreateList: () => void,
-        onAddItem: () => void
+        onAddItem: () => void,
+        onAddItems: () => void
     ) {
         super(leaf);
         this.manager = manager;
         this.onCreateList = onCreateList;
         this.onAddItem = onAddItem;
+        this.onAddItems = onAddItems;
         this.contentContainer = document.createElement("div");
     }
 
@@ -120,6 +123,14 @@ export class ChecklistView extends ItemView {
             setIcon(addItemBtn, "plus");
             addItemBtn.createSpan({ text: "Add Item" });
             addItemBtn.addEventListener("click", () => this.onAddItem());
+
+            const addItemsBtn = actions.createEl("button", {
+                cls: "checklist-btn checklist-btn-add-items",
+                attr: { "aria-label": "Add multiple items" },
+            });
+            setIcon(addItemsBtn, "list-plus");
+            addItemsBtn.createSpan({ text: "Add Multiple" });
+            addItemsBtn.addEventListener("click", () => this.onAddItems());
         }
     }
 

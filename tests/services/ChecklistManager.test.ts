@@ -170,6 +170,73 @@ describe("ChecklistManager", () => {
         });
     });
 
+    describe("addItems", () => {
+        it("should create multiple items at once", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            const items = [
+                { name: "Task 1", properties: { Priority: "High" }, description: "First" },
+                { name: "Task 2", properties: { Priority: "Low" }, description: "Second" },
+                { name: "Task 3", properties: {}, description: "" },
+            ];
+
+            const files = await manager.addItems(checklist.id, items);
+
+            expect(files).toHaveLength(3);
+            expect(createSpy).toHaveBeenCalledTimes(3);
+        });
+
+        it("should create correct files for each item", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            await manager.addItems(checklist.id, [
+                { name: "Buy milk", properties: { Priority: "High" }, description: "From store" },
+                { name: "Walk dog", properties: { Priority: "Low" }, description: "" },
+            ]);
+
+            const [path1, content1] = createSpy.mock.calls[0];
+            expect(path1).toBe("checklists/Tasks/Buy milk.md");
+            expect(content1).toContain("Priority: High");
+            expect(content1).toContain("From store");
+
+            const [path2, content2] = createSpy.mock.calls[1];
+            expect(path2).toBe("checklists/Tasks/Walk dog.md");
+            expect(content2).toContain("Priority: Low");
+        });
+
+        it("should apply default values for missing properties", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text", defaultValue: "Medium" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            await manager.addItems(checklist.id, [
+                { name: "Task 1", properties: {}, description: "" },
+            ]);
+
+            const [, content] = createSpy.mock.calls[0];
+            expect(content).toContain("Priority: Medium");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.addItems("nonexistent", [{ name: "Task", properties: {}, description: "" }])
+            ).rejects.toThrow("Checklist not found");
+        });
+
+        it("should return empty array for empty input", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            const files = await manager.addItems(checklist.id, []);
+            expect(files).toEqual([]);
+        });
+    });
+
     describe("setActiveChecklist", () => {
         it("should set a checklist as active", async () => {
             const c1 = await manager.createChecklist("Tasks 1", []);
