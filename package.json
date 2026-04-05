@@ -1,6 +1,6 @@
 {
   "name": "obsidian-checklist",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Checklist views plugin for Obsidian - create Bases-like checklist views with checkboxes",
   "main": "main.js",
   "scripts": {
