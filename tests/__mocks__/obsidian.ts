@@ -353,6 +353,10 @@ export class Workspace {
         return this.leaves.get(type) || [];
     }
 
+    getLeaf(_split?: boolean | string): WorkspaceLeaf {
+        return new WorkspaceLeaf();
+    }
+
     getLeftLeaf(_split: boolean): WorkspaceLeaf {
         return new WorkspaceLeaf();
     }

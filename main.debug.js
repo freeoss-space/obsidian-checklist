@@ -1169,7 +1169,7 @@ var ChecklistPlugin = class extends import_obsidian8.Plugin {
       this.app.workspace.revealLeaf(leaves[0]);
       return;
     }
-    const leaf = this.app.workspace.getLeftLeaf(false);
+    const leaf = this.app.workspace.getLeaf(false);
     if (leaf) {
       await leaf.setViewState({
         type: VIEW_TYPE_CHECKLIST,
