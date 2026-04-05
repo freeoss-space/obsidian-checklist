@@ -29,7 +29,8 @@ export default class ChecklistPlugin extends Plugin {
                 this.manager,
                 (id) => this.selectChecklist(id),
                 () => this.openCreateListModal(),
-                (id) => this.handleDeleteChecklist(id)
+                (id) => this.handleDeleteChecklist(id),
+                (id, format) => this.handleExport(id, format)
             );
         });
 
@@ -41,7 +42,11 @@ export default class ChecklistPlugin extends Plugin {
                 () => this.openAddItemModal(),
                 () => this.openAddItemsModal(),
                 (filePath) => this.handleDeleteItem(filePath),
-                () => this.refreshSidebar()
+                () => this.refreshSidebar(),
+                (format) => {
+                    const active = this.manager.getActiveChecklist();
+                    if (active) this.handleExport(active.id, format);
+                }
             );
         });
 
@@ -79,6 +84,38 @@ export default class ChecklistPlugin extends Plugin {
             id: "add-checklist-items",
             name: "Add multiple items to active checklist",
             callback: () => this.openAddItemsModal(),
+        });
+
+        this.addCommand({
+            id: "export-checklist-markdown",
+            name: "Export active checklist as Markdown",
+            callback: () => {
+                const active = this.manager.getActiveChecklist();
+                if (active) this.handleExport(active.id, "markdown");
+                else new Notice("No active checklist.");
+            },
+        });
+
+        this.addCommand({
+            id: "export-checklist-json",
+            name: "Export active checklist as JSON",
+            callback: () => {
+                const active = this.manager.getActiveChecklist();
+                if (active) this.handleExport(active.id, "json");
+                else new Notice("No active checklist.");
+            },
+        });
+
+        this.addCommand({
+            id: "export-all-checklists-markdown",
+            name: "Export all checklists as Markdown",
+            callback: () => this.handleExport(null, "markdown"),
+        });
+
+        this.addCommand({
+            id: "export-all-checklists-json",
+            name: "Export all checklists as JSON",
+            callback: () => this.handleExport(null, "json"),
         });
     }
 
@@ -161,6 +198,51 @@ export default class ChecklistPlugin extends Plugin {
         new Notice(`"${name}" deleted.`);
         this.refreshMainView();
         this.refreshSidebar();
+    }
+
+    /**
+     * Exports a checklist (or all checklists) and saves to vault.
+     */
+    async handleExport(id: string | null, format: "markdown" | "json"): Promise<void> {
+        const ext = format === "markdown" ? "md" : "json";
+
+        if (id === null) {
+            // Export all
+            const content = format === "markdown"
+                ? await this.manager.exportAllAsMarkdown()
+                : await this.manager.exportAllAsJson();
+
+            if (!content || content === "") {
+                new Notice("No checklists to export.");
+                return;
+            }
+
+            const filePath = `checklists-export.${ext}`;
+            await this.saveExportFile(filePath, content);
+            new Notice(`All checklists exported to ${filePath}`);
+        } else {
+            // Export single
+            const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
+            if (!checklist) return;
+
+            const content = format === "markdown"
+                ? await this.manager.exportChecklistAsMarkdown(id)
+                : await this.manager.exportChecklistAsJson(id);
+
+            const safeName = checklist.name.replace(/[\\/:*?"<>|]/g, "-");
+            const filePath = `${safeName}-export.${ext}`;
+            await this.saveExportFile(filePath, content);
+            new Notice(`"${checklist.name}" exported to ${filePath}`);
+        }
+    }
+
+    private async saveExportFile(filePath: string, content: string): Promise<void> {
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+        if (existing) {
+            await this.app.vault.modify(existing as any, content);
+        } else {
+            await this.app.vault.create(filePath, content);
+        }
     }
 
     openCreateListModal(): void {

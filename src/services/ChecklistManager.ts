@@ -223,6 +223,94 @@ export class ChecklistManager {
     }
 
     /**
+     * Exports a single checklist as a markdown string.
+     */
+    async exportChecklistAsMarkdown(checklistId: string): Promise<string> {
+        const checklist = this.findChecklist(checklistId);
+        const items = await this.getItems(checklistId);
+
+        const lines: string[] = [`# ${checklist.name}`, ""];
+
+        for (const item of items) {
+            const status = item.completed ? "x" : " ";
+            lines.push(`- [${status}] ${item.name}`);
+
+            for (const prop of checklist.properties) {
+                const val = item.properties[prop.name];
+                if (val !== undefined && val !== "") {
+                    lines.push(`  - ${prop.name}: ${val}`);
+                }
+            }
+
+            if (item.description) {
+                lines.push(`  - ${item.description}`);
+            }
+        }
+
+        return lines.join("\n") + "\n";
+    }
+
+    /**
+     * Exports a single checklist as a JSON string.
+     */
+    async exportChecklistAsJson(checklistId: string): Promise<string> {
+        const checklist = this.findChecklist(checklistId);
+        const items = await this.getItems(checklistId);
+
+        const data = {
+            name: checklist.name,
+            properties: checklist.properties,
+            items: items.map((item) => ({
+                name: item.name,
+                properties: item.properties,
+                description: item.description,
+                completed: item.completed,
+            })),
+        };
+
+        return JSON.stringify(data, null, 2);
+    }
+
+    /**
+     * Exports all checklists as a combined markdown string.
+     */
+    async exportAllAsMarkdown(): Promise<string> {
+        const checklists = this.settings.checklists;
+        if (checklists.length === 0) return "";
+
+        const sections: string[] = [];
+        for (const checklist of checklists) {
+            sections.push(await this.exportChecklistAsMarkdown(checklist.id));
+        }
+
+        return sections.join("\n");
+    }
+
+    /**
+     * Exports all checklists as a JSON string.
+     */
+    async exportAllAsJson(): Promise<string> {
+        const checklists = this.settings.checklists;
+        const allData: any[] = [];
+
+        for (const checklist of checklists) {
+            const items = await this.getItems(checklist.id);
+            allData.push({
+                name: checklist.name,
+                properties: checklist.properties,
+                items: items.map((item) => ({
+                    name: item.name,
+                    properties: item.properties,
+                    description: item.description,
+                    completed: item.completed,
+                })),
+            });
+        }
+
+        return JSON.stringify({ checklists: allData }, null, 2);
+    }
+
+    /**
      * Finds a checklist by ID or throws.
      */
     private findChecklist(id: string): ChecklistDefinition {

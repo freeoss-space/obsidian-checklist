@@ -290,6 +290,122 @@ describe("ChecklistManager", () => {
         });
     });
 
+    describe("exportChecklistAsMarkdown", () => {
+        it("should export a checklist as a markdown string with task items", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            await manager.addItem(checklist.id, "Buy milk", { Priority: "High" }, "From the store");
+            await manager.addItem(checklist.id, "Walk dog", { Priority: "Low" }, "");
+
+            const md = await manager.exportChecklistAsMarkdown(checklist.id);
+
+            expect(md).toContain("# Tasks");
+            expect(md).toContain("- [ ] Buy milk");
+            expect(md).toContain("Priority: High");
+            expect(md).toContain("From the store");
+            expect(md).toContain("- [ ] Walk dog");
+            expect(md).toContain("Priority: Low");
+        });
+
+        it("should export an empty checklist with just the heading", async () => {
+            const checklist = await manager.createChecklist("Empty", []);
+
+            const md = await manager.exportChecklistAsMarkdown(checklist.id);
+
+            expect(md).toContain("# Empty");
+            expect(md).not.toContain("- [ ]");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.exportChecklistAsMarkdown("nonexistent")
+            ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("exportChecklistAsJson", () => {
+        it("should export a checklist as a JSON string with items", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            await manager.addItem(checklist.id, "Buy milk", { Priority: "High" }, "From store");
+
+            const jsonStr = await manager.exportChecklistAsJson(checklist.id);
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.name).toBe("Tasks");
+            expect(parsed.items).toHaveLength(1);
+            expect(parsed.items[0].name).toBe("Buy milk");
+            expect(parsed.items[0].properties.Priority).toBe("High");
+            expect(parsed.items[0].description).toBe("From store");
+        });
+
+        it("should include checklist properties definition in JSON", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "dropdown", options: ["Low", "High"] },
+            ]);
+
+            const jsonStr = await manager.exportChecklistAsJson(checklist.id);
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.properties).toHaveLength(1);
+            expect(parsed.properties[0].name).toBe("Priority");
+            expect(parsed.properties[0].type).toBe("dropdown");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.exportChecklistAsJson("nonexistent")
+            ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("exportAllAsMarkdown", () => {
+        it("should export all checklists in one markdown string", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Shopping", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Apples", {}, "");
+
+            const md = await manager.exportAllAsMarkdown();
+
+            expect(md).toContain("# Tasks");
+            expect(md).toContain("- [ ] Task 1");
+            expect(md).toContain("# Shopping");
+            expect(md).toContain("- [ ] Apples");
+        });
+
+        it("should return empty string when no checklists exist", async () => {
+            const md = await manager.exportAllAsMarkdown();
+            expect(md).toBe("");
+        });
+    });
+
+    describe("exportAllAsJson", () => {
+        it("should export all checklists as a JSON string", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Shopping", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Apples", {}, "");
+
+            const jsonStr = await manager.exportAllAsJson();
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.checklists).toHaveLength(2);
+            expect(parsed.checklists[0].name).toBe("Tasks");
+            expect(parsed.checklists[0].items).toHaveLength(1);
+            expect(parsed.checklists[1].name).toBe("Shopping");
+            expect(parsed.checklists[1].items).toHaveLength(1);
+        });
+
+        it("should return empty checklists array when none exist", async () => {
+            const jsonStr = await manager.exportAllAsJson();
+            const parsed = JSON.parse(jsonStr);
+            expect(parsed.checklists).toEqual([]);
+        });
+    });
+
     describe("setActiveChecklist", () => {
         it("should set a checklist as active", async () => {
             const c1 = await manager.createChecklist("Tasks 1", []);

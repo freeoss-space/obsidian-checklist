@@ -14,6 +14,7 @@ export class ChecklistView extends ItemView {
     private onAddItems: () => void;
     private onDeleteItem: (filePath: string) => void;
     private onRefreshSidebar: () => void;
+    private onExport: (format: "markdown" | "json") => void;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -21,7 +22,8 @@ export class ChecklistView extends ItemView {
         onAddItem: () => void,
         onAddItems: () => void,
         onDeleteItem: (filePath: string) => void,
-        onRefreshSidebar: () => void
+        onRefreshSidebar: () => void,
+        onExport: (format: "markdown" | "json") => void
     ) {
         super(leaf);
         this.manager = manager;
@@ -29,6 +31,7 @@ export class ChecklistView extends ItemView {
         this.onAddItems = onAddItems;
         this.onDeleteItem = onDeleteItem;
         this.onRefreshSidebar = onRefreshSidebar;
+        this.onExport = onExport;
         this.contentContainer = document.createElement("div");
     }
 
@@ -85,6 +88,26 @@ export class ChecklistView extends ItemView {
         // Title bar
         const titleBar = this.contentContainer.createDiv({ cls: "checklist-title-bar" });
         titleBar.createEl("h4", { text: checklist.name, cls: "checklist-title" });
+
+        const exportBtn = titleBar.createEl("button", {
+            cls: "checklist-export-btn clickable-icon",
+            attr: { "aria-label": "Export checklist" },
+        });
+        setIcon(exportBtn, "download");
+        exportBtn.addEventListener("click", (e) => {
+            const menu = new Menu();
+            menu.addItem((item) => {
+                item.setTitle("Export as Markdown")
+                    .setIcon("file-text")
+                    .onClick(() => this.onExport("markdown"));
+            });
+            menu.addItem((item) => {
+                item.setTitle("Export as JSON")
+                    .setIcon("braces")
+                    .onClick(() => this.onExport("json"));
+            });
+            menu.showAtMouseEvent(e);
+        });
 
         const items = await this.manager.getItems(checklist.id);
         const listContainer = this.contentContainer.createDiv({ cls: "checklist-items" });

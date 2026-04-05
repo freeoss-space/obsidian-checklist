@@ -13,19 +13,22 @@ export class ChecklistSidebarView extends ItemView {
     private onSelectChecklist: (id: string) => void;
     private onCreateList: () => void;
     private onDeleteChecklist: (id: string) => void;
+    private onExport: (id: string | null, format: "markdown" | "json") => void;
 
     constructor(
         leaf: WorkspaceLeaf,
         manager: ChecklistManager,
         onSelectChecklist: (id: string) => void,
         onCreateList: () => void,
-        onDeleteChecklist: (id: string) => void
+        onDeleteChecklist: (id: string) => void,
+        onExport: (id: string | null, format: "markdown" | "json") => void
     ) {
         super(leaf);
         this.manager = manager;
         this.onSelectChecklist = onSelectChecklist;
         this.onCreateList = onCreateList;
         this.onDeleteChecklist = onDeleteChecklist;
+        this.onExport = onExport;
         this.contentContainer = document.createElement("div");
     }
 
@@ -58,10 +61,32 @@ export class ChecklistSidebarView extends ItemView {
     async renderView(): Promise<void> {
         this.contentContainer.empty();
 
-        // Header with create button
+        // Header with action buttons
         const header = this.contentContainer.createDiv({ cls: "checklist-sidebar-header" });
         header.createSpan({ text: "Checklists", cls: "checklist-sidebar-title" });
-        const addBtn = header.createEl("button", {
+        const headerActions = header.createDiv({ cls: "checklist-sidebar-header-actions" });
+
+        const exportBtn = headerActions.createEl("button", {
+            cls: "checklist-sidebar-add-btn clickable-icon",
+            attr: { "aria-label": "Export all checklists" },
+        });
+        setIcon(exportBtn, "download");
+        exportBtn.addEventListener("click", (e) => {
+            const menu = new Menu();
+            menu.addItem((item) => {
+                item.setTitle("Export all as Markdown")
+                    .setIcon("file-text")
+                    .onClick(() => this.onExport(null, "markdown"));
+            });
+            menu.addItem((item) => {
+                item.setTitle("Export all as JSON")
+                    .setIcon("braces")
+                    .onClick(() => this.onExport(null, "json"));
+            });
+            menu.showAtMouseEvent(e);
+        });
+
+        const addBtn = headerActions.createEl("button", {
             cls: "checklist-sidebar-add-btn clickable-icon",
             attr: { "aria-label": "New checklist" },
         });
@@ -115,11 +140,19 @@ export class ChecklistSidebarView extends ItemView {
             e.preventDefault();
             const menu = new Menu();
             menu.addItem((item) => {
+                item.setTitle("Export as Markdown")
+                    .setIcon("file-text")
+                    .onClick(() => this.onExport(checklist.id, "markdown"));
+            });
+            menu.addItem((item) => {
+                item.setTitle("Export as JSON")
+                    .setIcon("braces")
+                    .onClick(() => this.onExport(checklist.id, "json"));
+            });
+            menu.addItem((item) => {
                 item.setTitle("Delete checklist")
                     .setIcon("trash")
-                    .onClick(() => {
-                        this.onDeleteChecklist(checklist.id);
-                    });
+                    .onClick(() => this.onDeleteChecklist(checklist.id));
             });
             menu.showAtMouseEvent(e);
         });
