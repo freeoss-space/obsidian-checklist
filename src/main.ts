@@ -355,6 +355,7 @@ export default class ChecklistPlugin extends Plugin {
 
     openShareModal(sharedText: string): void {
         new ShareToChecklistModal(
+            this.app,
             this.manager,
             sharedText,
             (checklistId) => {
