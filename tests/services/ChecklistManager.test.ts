@@ -76,6 +76,34 @@ describe("ChecklistManager", () => {
             await manager.deleteChecklist(checklist.id);
             expect(saveFn).toHaveBeenCalled();
         });
+
+        it("should delete all items in the checklist folder", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+            await manager.addItem(checklist.id, "Task 2", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteChecklist(checklist.id);
+
+            // Should have deleted both item files
+            const deletedPaths = deleteSpy.mock.calls.map((c) => c[0].path);
+            expect(deletedPaths).toContain("checklists/Tasks/Task 1.md");
+            expect(deletedPaths).toContain("checklists/Tasks/Task 2.md");
+        });
+
+        it("should not delete files from other checklists", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Other", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Other 1", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteChecklist(c1.id);
+
+            const deletedPaths = deleteSpy.mock.calls.map((c) => c[0].path);
+            expect(deletedPaths).toContain("checklists/Tasks/Task 1.md");
+            expect(deletedPaths).not.toContain("checklists/Other/Other 1.md");
+        });
     });
 
     describe("addItem", () => {
@@ -111,6 +139,31 @@ describe("ChecklistManager", () => {
             await expect(
                 manager.addItem("nonexistent", "Task", {}, "")
             ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("deleteItem", () => {
+        it("should delete the file for an item", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteItem("checklists/Tasks/Task 1.md");
+
+            expect(deleteSpy).toHaveBeenCalled();
+            expect(deleteSpy.mock.calls[0][0].path).toBe("checklists/Tasks/Task 1.md");
+        });
+
+        it("should remove the file from vault so getItems no longer returns it", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+            await manager.addItem(checklist.id, "Task 2", {}, "");
+
+            await manager.deleteItem("checklists/Tasks/Task 1.md");
+
+            const items = await manager.getItems(checklist.id);
+            expect(items).toHaveLength(1);
+            expect(items[0].name).toBe("Task 2");
         });
     });
 

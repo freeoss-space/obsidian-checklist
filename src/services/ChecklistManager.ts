@@ -60,10 +60,21 @@ export class ChecklistManager {
     }
 
     /**
-     * Deletes a checklist definition from settings.
-     * Does not delete the folder or files (user may want to keep them).
+     * Deletes a checklist definition from settings and removes all its item files.
      */
     async deleteChecklist(id: string): Promise<void> {
+        const checklist = this.settings.checklists.find((c) => c.id === id);
+
+        if (checklist) {
+            const allFiles = this.app.vault.getMarkdownFiles();
+            const checklistFiles = allFiles.filter((f) =>
+                f.path.startsWith(checklist.folderPath + "/")
+            );
+            for (const file of checklistFiles) {
+                await this.app.vault.delete(file);
+            }
+        }
+
         this.settings.checklists = this.settings.checklists.filter((c) => c.id !== id);
 
         if (this.settings.activeChecklistId === id) {
@@ -71,6 +82,18 @@ export class ChecklistManager {
         }
 
         await this.save();
+    }
+
+    /**
+     * Deletes a single item (markdown file) by its file path.
+     */
+    async deleteItem(filePath: string): Promise<void> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) {
+            await this.app.vault.delete(file);
+        } else {
+            await this.app.vault.delete({ path: filePath } as TFile);
+        }
     }
 
     /**
