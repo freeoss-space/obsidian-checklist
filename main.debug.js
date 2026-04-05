@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => ChecklistPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/constants.ts
 var VIEW_TYPE_CHECKLIST = "checklist-view";
@@ -951,6 +951,84 @@ var AddItemsModal = class extends import_obsidian6.Modal {
   }
 };
 
+// src/modals/ShareToChecklistModal.ts
+var import_obsidian7 = require("obsidian");
+var ShareToChecklistModal = class extends import_obsidian7.Modal {
+  constructor(manager, sharedText, onItemAdded) {
+    var _a;
+    super(manager.app);
+    this.itemName = "";
+    this.description = "";
+    this.selectedChecklistId = "";
+    this.manager = manager;
+    this.sharedText = sharedText;
+    this.onItemAdded = onItemAdded;
+    const lines = sharedText.trim().split("\n");
+    this.itemName = ((_a = lines[0]) == null ? void 0 : _a.trim()) || "";
+    this.description = lines.slice(1).join("\n").trim();
+    const activeId = this.manager.getSettings().activeChecklistId;
+    if (activeId) {
+      this.selectedChecklistId = activeId;
+    }
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("checklist-modal");
+    contentEl.createEl("h2", { text: "Add to Checklist" });
+    const checklists = this.manager.getSettings().checklists;
+    if (checklists.length === 0) {
+      contentEl.createEl("p", {
+        text: "No checklists found. Create one first."
+      });
+      return;
+    }
+    new import_obsidian7.Setting(contentEl).setName("Checklist").setDesc("Select the checklist to add the item to").addDropdown((dropdown) => {
+      dropdown.addOption("", "Select a checklist...");
+      for (const cl of checklists) {
+        dropdown.addOption(cl.id, cl.name);
+      }
+      dropdown.setValue(this.selectedChecklistId).onChange((value) => {
+        this.selectedChecklistId = value;
+      });
+    });
+    new import_obsidian7.Setting(contentEl).setName("Name").setDesc("Name for the checklist item").addText(
+      (text) => text.setPlaceholder("Item name").setValue(this.itemName).onChange((value) => {
+        this.itemName = value;
+      })
+    );
+    new import_obsidian7.Setting(contentEl).setName("Description").setDesc("Optional description for the item").addTextArea(
+      (text) => text.setPlaceholder("Enter a description...").setValue(this.description).onChange((value) => {
+        this.description = value;
+      })
+    );
+    new import_obsidian7.Setting(contentEl).addButton(
+      (button) => button.setButtonText("Add to Checklist").setCta().onClick(async () => {
+        if (!this.selectedChecklistId) {
+          new import_obsidian7.Notice("Please select a checklist.");
+          return;
+        }
+        if (!this.itemName.trim()) {
+          new import_obsidian7.Notice("Please enter an item name.");
+          return;
+        }
+        await this.manager.addItem(
+          this.selectedChecklistId,
+          this.itemName.trim(),
+          {},
+          this.description.trim()
+        );
+        new import_obsidian7.Notice(`Item "${this.itemName.trim()}" added.`);
+        this.onItemAdded(this.selectedChecklistId);
+        this.close();
+      })
+    );
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
 // src/models/types.ts
 var DEFAULT_SETTINGS = {
   checklists: [],
@@ -958,7 +1036,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/main.ts
-var ChecklistPlugin = class extends import_obsidian7.Plugin {
+var ChecklistPlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -1001,6 +1079,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
     this.app.workspace.onLayoutReady(() => {
       this.activateSidebar();
     });
+    this.registerShareIntent();
     this.addCommand({
       id: "open-checklist-sidebar",
       name: "Open checklist sidebar",
@@ -1034,7 +1113,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
         if (active)
           this.handleExport(active.id, "markdown");
         else
-          new import_obsidian7.Notice("No active checklist.");
+          new import_obsidian8.Notice("No active checklist.");
       }
     });
     this.addCommand({
@@ -1045,7 +1124,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
         if (active)
           this.handleExport(active.id, "json");
         else
-          new import_obsidian7.Notice("No active checklist.");
+          new import_obsidian8.Notice("No active checklist.");
       }
     });
     this.addCommand({
@@ -1116,7 +1195,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
     if (!checklist)
       return;
     await this.manager.deleteChecklist(id);
-    new import_obsidian7.Notice(`Checklist "${checklist.name}" deleted.`);
+    new import_obsidian8.Notice(`Checklist "${checklist.name}" deleted.`);
     this.refreshSidebar();
     this.refreshMainView();
   }
@@ -1127,7 +1206,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
     var _a;
     await this.manager.deleteItem(filePath);
     const name = ((_a = filePath.split("/").pop()) == null ? void 0 : _a.replace(/\.md$/, "")) || "Item";
-    new import_obsidian7.Notice(`"${name}" deleted.`);
+    new import_obsidian8.Notice(`"${name}" deleted.`);
     this.refreshMainView();
     this.refreshSidebar();
   }
@@ -1139,12 +1218,12 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
     if (id === null) {
       const content = format === "markdown" ? await this.manager.exportAllAsMarkdown() : await this.manager.exportAllAsJson();
       if (!content || content === "") {
-        new import_obsidian7.Notice("No checklists to export.");
+        new import_obsidian8.Notice("No checklists to export.");
         return;
       }
       const filePath = `checklists-export.${ext}`;
       await this.saveExportFile(filePath, content);
-      new import_obsidian7.Notice(`All checklists exported to ${filePath}`);
+      new import_obsidian8.Notice(`All checklists exported to ${filePath}`);
     } else {
       const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
       if (!checklist)
@@ -1153,7 +1232,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
       const safeName = checklist.name.replace(/[\\/:*?"<>|]/g, "-");
       const filePath = `${safeName}-export.${ext}`;
       await this.saveExportFile(filePath, content);
-      new import_obsidian7.Notice(`"${checklist.name}" exported to ${filePath}`);
+      new import_obsidian8.Notice(`"${checklist.name}" exported to ${filePath}`);
     }
   }
   async saveExportFile(filePath, content) {
@@ -1167,7 +1246,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
   openCreateListModal() {
     new CreateListModal(this.app, async (name, properties) => {
       await this.manager.createChecklist(name, properties);
-      new import_obsidian7.Notice(`Checklist "${name}" created.`);
+      new import_obsidian8.Notice(`Checklist "${name}" created.`);
       this.refreshSidebar();
       await this.activateMainView();
       this.refreshMainView();
@@ -1176,7 +1255,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
   openAddItemModal() {
     const active = this.manager.getActiveChecklist();
     if (!active) {
-      new import_obsidian7.Notice("No active checklist. Create one first.");
+      new import_obsidian8.Notice("No active checklist. Create one first.");
       return;
     }
     new AddItemModal(
@@ -1184,7 +1263,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
       active.properties,
       async (name, properties, description) => {
         await this.manager.addItem(active.id, name, properties, description);
-        new import_obsidian7.Notice(`Item "${name}" added.`);
+        new import_obsidian8.Notice(`Item "${name}" added.`);
         this.refreshMainView();
         this.refreshSidebar();
       }
@@ -1193,7 +1272,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
   openAddItemsModal() {
     const active = this.manager.getActiveChecklist();
     if (!active) {
-      new import_obsidian7.Notice("No active checklist. Create one first.");
+      new import_obsidian8.Notice("No active checklist. Create one first.");
       return;
     }
     new AddItemsModal(
@@ -1201,7 +1280,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
       active.properties,
       async (items) => {
         const files = await this.manager.addItems(active.id, items);
-        new import_obsidian7.Notice(`${files.length} item(s) added.`);
+        new import_obsidian8.Notice(`${files.length} item(s) added.`);
         this.refreshMainView();
         this.refreshSidebar();
       }
@@ -1224,6 +1303,40 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
         view.renderView();
       }
     }
+  }
+  registerShareIntent() {
+    this.registerObsidianProtocolHandler("checklist-add", async (params) => {
+      const text = params.text || params.url || "";
+      if (text) {
+        this.openShareModal(text);
+      }
+    });
+    try {
+      if (this.app.isMobile) {
+        this.registerEvent(
+          // @ts-ignore
+          this.app.workspace.on("receive-text-menu", (menu, text) => {
+            menu.addItem((item) => {
+              item.setTitle("Add to Checklist").setIcon(ICON_CHECKLIST).onClick(() => {
+                this.openShareModal(text);
+              });
+            });
+          })
+        );
+      }
+    } catch (e) {
+    }
+  }
+  openShareModal(sharedText) {
+    new ShareToChecklistModal(
+      this.manager,
+      sharedText,
+      (checklistId) => {
+        this.manager.setActiveChecklist(checklistId);
+        this.refreshMainView();
+        this.refreshSidebar();
+      }
+    ).open();
   }
   async loadSettings() {
     const data = await this.loadData();

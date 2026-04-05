@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, Notice } from "obsidian";
+import { Plugin, WorkspaceLeaf, Notice, Menu } from "obsidian";
 import { VIEW_TYPE_CHECKLIST, VIEW_TYPE_CHECKLIST_SIDEBAR, ICON_CHECKLIST } from "./constants";
 import { ChecklistView } from "./views/ChecklistView";
 import { ChecklistSidebarView } from "./views/ChecklistSidebarView";
@@ -6,6 +6,7 @@ import { ChecklistManager } from "./services/ChecklistManager";
 import { CreateListModal } from "./modals/CreateListModal";
 import { AddItemModal } from "./modals/AddItemModal";
 import { AddItemsModal } from "./modals/AddItemsModal";
+import { ShareToChecklistModal } from "./modals/ShareToChecklistModal";
 import {
     ChecklistPluginSettings,
     DEFAULT_SETTINGS,
@@ -59,6 +60,9 @@ export default class ChecklistPlugin extends Plugin {
         this.app.workspace.onLayoutReady(() => {
             this.activateSidebar();
         });
+
+        // Share intent handler (mobile share sheet + protocol handler)
+        this.registerShareIntent();
 
         // Commands
         this.addCommand({
@@ -316,6 +320,49 @@ export default class ChecklistPlugin extends Plugin {
                 view.renderView();
             }
         }
+    }
+
+    private registerShareIntent(): void {
+        // Protocol handler: obsidian://checklist-add?text=...
+        this.registerObsidianProtocolHandler("checklist-add", async (params) => {
+            const text = params.text || params.url || "";
+            if (text) {
+                this.openShareModal(text);
+            }
+        });
+
+        try {
+            // @ts-ignore - Obsidian mobile internal API for share intent
+            if (this.app.isMobile) {
+                // @ts-ignore
+                this.registerEvent(
+                    // @ts-ignore
+                    this.app.workspace.on("receive-text-menu", (menu: Menu, text: string) => {
+                        menu.addItem((item: any) => {
+                            item.setTitle("Add to Checklist")
+                                .setIcon(ICON_CHECKLIST)
+                                .onClick(() => {
+                                    this.openShareModal(text);
+                                });
+                        });
+                    }),
+                );
+            }
+        } catch (e) {
+            // Share intent registration skipped (not on mobile or API not available)
+        }
+    }
+
+    openShareModal(sharedText: string): void {
+        new ShareToChecklistModal(
+            this.manager,
+            sharedText,
+            (checklistId) => {
+                this.manager.setActiveChecklist(checklistId);
+                this.refreshMainView();
+                this.refreshSidebar();
+            }
+        ).open();
     }
 
     async loadSettings(): Promise<void> {
