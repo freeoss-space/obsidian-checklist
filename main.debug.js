@@ -998,6 +998,9 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
     this.addRibbonIcon(ICON_CHECKLIST, "Open Checklist", () => {
       this.activateSidebar();
     });
+    this.app.workspace.onLayoutReady(() => {
+      this.activateSidebar();
+    });
     this.addCommand({
       id: "open-checklist-sidebar",
       name: "Open checklist sidebar",
@@ -1087,7 +1090,7 @@ var ChecklistPlugin = class extends import_obsidian7.Plugin {
       this.app.workspace.revealLeaf(leaves[0]);
       return;
     }
-    const leaf = this.app.workspace.getRightLeaf(false);
+    const leaf = this.app.workspace.getLeftLeaf(false);
     if (leaf) {
       await leaf.setViewState({
         type: VIEW_TYPE_CHECKLIST,

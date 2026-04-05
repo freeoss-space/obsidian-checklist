@@ -55,6 +55,11 @@ export default class ChecklistPlugin extends Plugin {
             this.activateSidebar();
         });
 
+        // Auto-activate sidebar views on layout ready
+        this.app.workspace.onLayoutReady(() => {
+            this.activateSidebar();
+        });
+
         // Commands
         this.addCommand({
             id: "open-checklist-sidebar",
@@ -156,7 +161,7 @@ export default class ChecklistPlugin extends Plugin {
             return;
         }
 
-        const leaf = this.app.workspace.getRightLeaf(false);
+        const leaf = this.app.workspace.getLeftLeaf(false);
         if (leaf) {
             await leaf.setViewState({
                 type: VIEW_TYPE_CHECKLIST,
