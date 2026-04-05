@@ -165,7 +165,7 @@ export default class ChecklistPlugin extends Plugin {
             return;
         }
 
-        const leaf = this.app.workspace.getLeftLeaf(false);
+        const leaf = this.app.workspace.getLeaf(false);
         if (leaf) {
             await leaf.setViewState({
                 type: VIEW_TYPE_CHECKLIST,
