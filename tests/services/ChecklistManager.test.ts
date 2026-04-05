@@ -76,6 +76,34 @@ describe("ChecklistManager", () => {
             await manager.deleteChecklist(checklist.id);
             expect(saveFn).toHaveBeenCalled();
         });
+
+        it("should delete all items in the checklist folder", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+            await manager.addItem(checklist.id, "Task 2", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteChecklist(checklist.id);
+
+            // Should have deleted both item files
+            const deletedPaths = deleteSpy.mock.calls.map((c) => c[0].path);
+            expect(deletedPaths).toContain("checklists/Tasks/Task 1.md");
+            expect(deletedPaths).toContain("checklists/Tasks/Task 2.md");
+        });
+
+        it("should not delete files from other checklists", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Other", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Other 1", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteChecklist(c1.id);
+
+            const deletedPaths = deleteSpy.mock.calls.map((c) => c[0].path);
+            expect(deletedPaths).toContain("checklists/Tasks/Task 1.md");
+            expect(deletedPaths).not.toContain("checklists/Other/Other 1.md");
+        });
     });
 
     describe("addItem", () => {
@@ -111,6 +139,31 @@ describe("ChecklistManager", () => {
             await expect(
                 manager.addItem("nonexistent", "Task", {}, "")
             ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("deleteItem", () => {
+        it("should delete the file for an item", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.deleteItem("checklists/Tasks/Task 1.md");
+
+            expect(deleteSpy).toHaveBeenCalled();
+            expect(deleteSpy.mock.calls[0][0].path).toBe("checklists/Tasks/Task 1.md");
+        });
+
+        it("should remove the file from vault so getItems no longer returns it", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+            await manager.addItem(checklist.id, "Task 2", {}, "");
+
+            await manager.deleteItem("checklists/Tasks/Task 1.md");
+
+            const items = await manager.getItems(checklist.id);
+            expect(items).toHaveLength(1);
+            expect(items[0].name).toBe("Task 2");
         });
     });
 
@@ -167,6 +220,189 @@ describe("ChecklistManager", () => {
         it("should return null when no active checklist", () => {
             const active = manager.getActiveChecklist();
             expect(active).toBeNull();
+        });
+    });
+
+    describe("addItems", () => {
+        it("should create multiple items at once", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            const items = [
+                { name: "Task 1", properties: { Priority: "High" }, description: "First" },
+                { name: "Task 2", properties: { Priority: "Low" }, description: "Second" },
+                { name: "Task 3", properties: {}, description: "" },
+            ];
+
+            const files = await manager.addItems(checklist.id, items);
+
+            expect(files).toHaveLength(3);
+            expect(createSpy).toHaveBeenCalledTimes(3);
+        });
+
+        it("should create correct files for each item", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            await manager.addItems(checklist.id, [
+                { name: "Buy milk", properties: { Priority: "High" }, description: "From store" },
+                { name: "Walk dog", properties: { Priority: "Low" }, description: "" },
+            ]);
+
+            const [path1, content1] = createSpy.mock.calls[0];
+            expect(path1).toBe("checklists/Tasks/Buy milk.md");
+            expect(content1).toContain("Priority: High");
+            expect(content1).toContain("From store");
+
+            const [path2, content2] = createSpy.mock.calls[1];
+            expect(path2).toBe("checklists/Tasks/Walk dog.md");
+            expect(content2).toContain("Priority: Low");
+        });
+
+        it("should apply default values for missing properties", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text", defaultValue: "Medium" },
+            ]);
+            const createSpy = jest.spyOn(app.vault, "create");
+
+            await manager.addItems(checklist.id, [
+                { name: "Task 1", properties: {}, description: "" },
+            ]);
+
+            const [, content] = createSpy.mock.calls[0];
+            expect(content).toContain("Priority: Medium");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.addItems("nonexistent", [{ name: "Task", properties: {}, description: "" }])
+            ).rejects.toThrow("Checklist not found");
+        });
+
+        it("should return empty array for empty input", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            const files = await manager.addItems(checklist.id, []);
+            expect(files).toEqual([]);
+        });
+    });
+
+    describe("exportChecklistAsMarkdown", () => {
+        it("should export a checklist as a markdown string with task items", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            await manager.addItem(checklist.id, "Buy milk", { Priority: "High" }, "From the store");
+            await manager.addItem(checklist.id, "Walk dog", { Priority: "Low" }, "");
+
+            const md = await manager.exportChecklistAsMarkdown(checklist.id);
+
+            expect(md).toContain("# Tasks");
+            expect(md).toContain("- [ ] Buy milk");
+            expect(md).toContain("Priority: High");
+            expect(md).toContain("From the store");
+            expect(md).toContain("- [ ] Walk dog");
+            expect(md).toContain("Priority: Low");
+        });
+
+        it("should export an empty checklist with just the heading", async () => {
+            const checklist = await manager.createChecklist("Empty", []);
+
+            const md = await manager.exportChecklistAsMarkdown(checklist.id);
+
+            expect(md).toContain("# Empty");
+            expect(md).not.toContain("- [ ]");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.exportChecklistAsMarkdown("nonexistent")
+            ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("exportChecklistAsJson", () => {
+        it("should export a checklist as a JSON string with items", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            await manager.addItem(checklist.id, "Buy milk", { Priority: "High" }, "From store");
+
+            const jsonStr = await manager.exportChecklistAsJson(checklist.id);
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.name).toBe("Tasks");
+            expect(parsed.items).toHaveLength(1);
+            expect(parsed.items[0].name).toBe("Buy milk");
+            expect(parsed.items[0].properties.Priority).toBe("High");
+            expect(parsed.items[0].description).toBe("From store");
+        });
+
+        it("should include checklist properties definition in JSON", async () => {
+            const checklist = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "dropdown", options: ["Low", "High"] },
+            ]);
+
+            const jsonStr = await manager.exportChecklistAsJson(checklist.id);
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.properties).toHaveLength(1);
+            expect(parsed.properties[0].name).toBe("Priority");
+            expect(parsed.properties[0].type).toBe("dropdown");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(
+                manager.exportChecklistAsJson("nonexistent")
+            ).rejects.toThrow("Checklist not found");
+        });
+    });
+
+    describe("exportAllAsMarkdown", () => {
+        it("should export all checklists in one markdown string", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Shopping", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Apples", {}, "");
+
+            const md = await manager.exportAllAsMarkdown();
+
+            expect(md).toContain("# Tasks");
+            expect(md).toContain("- [ ] Task 1");
+            expect(md).toContain("# Shopping");
+            expect(md).toContain("- [ ] Apples");
+        });
+
+        it("should return empty string when no checklists exist", async () => {
+            const md = await manager.exportAllAsMarkdown();
+            expect(md).toBe("");
+        });
+    });
+
+    describe("exportAllAsJson", () => {
+        it("should export all checklists as a JSON string", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Shopping", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Apples", {}, "");
+
+            const jsonStr = await manager.exportAllAsJson();
+            const parsed = JSON.parse(jsonStr);
+
+            expect(parsed.checklists).toHaveLength(2);
+            expect(parsed.checklists[0].name).toBe("Tasks");
+            expect(parsed.checklists[0].items).toHaveLength(1);
+            expect(parsed.checklists[1].name).toBe("Shopping");
+            expect(parsed.checklists[1].items).toHaveLength(1);
+        });
+
+        it("should return empty checklists array when none exist", async () => {
+            const jsonStr = await manager.exportAllAsJson();
+            const parsed = JSON.parse(jsonStr);
+            expect(parsed.checklists).toEqual([]);
         });
     });
 

@@ -60,10 +60,21 @@ export class ChecklistManager {
     }
 
     /**
-     * Deletes a checklist definition from settings.
-     * Does not delete the folder or files (user may want to keep them).
+     * Deletes a checklist definition from settings and removes all its item files.
      */
     async deleteChecklist(id: string): Promise<void> {
+        const checklist = this.settings.checklists.find((c) => c.id === id);
+
+        if (checklist) {
+            const allFiles = this.app.vault.getMarkdownFiles();
+            const checklistFiles = allFiles.filter((f) =>
+                f.path.startsWith(checklist.folderPath + "/")
+            );
+            for (const file of checklistFiles) {
+                await this.app.vault.delete(file);
+            }
+        }
+
         this.settings.checklists = this.settings.checklists.filter((c) => c.id !== id);
 
         if (this.settings.activeChecklistId === id) {
@@ -71,6 +82,18 @@ export class ChecklistManager {
         }
 
         await this.save();
+    }
+
+    /**
+     * Deletes a single item (markdown file) by its file path.
+     */
+    async deleteItem(filePath: string): Promise<void> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) {
+            await this.app.vault.delete(file);
+        } else {
+            await this.app.vault.delete({ path: filePath } as TFile);
+        }
     }
 
     /**
@@ -82,29 +105,62 @@ export class ChecklistManager {
         properties: Record<string, string | number | boolean>,
         description: string
     ): Promise<TFile> {
+        const [file] = await this.addItems(checklistId, [{ name, properties, description }]);
+        return file;
+    }
+
+    /**
+     * Adds multiple items (markdown files) to a checklist folder at once.
+     */
+    async addItems(
+        checklistId: string,
+        items: Array<{
+            name: string;
+            properties: Record<string, string | number | boolean>;
+            description: string;
+        }>
+    ): Promise<TFile[]> {
+        if (items.length === 0) return [];
+
         const checklist = this.findChecklist(checklistId);
+        const files: TFile[] = [];
 
-        // Apply default values for missing properties
-        const mergedProperties: Record<string, string | number | boolean> = {};
-        for (const prop of checklist.properties) {
+        for (const item of items) {
+            const mergedProperties = this.mergeProperties(checklist.properties, item.properties);
+            const frontmatter = generateFrontmatter(mergedProperties);
+            const content = item.description
+                ? `${frontmatter}\n\n${item.description}`
+                : `${frontmatter}\n`;
+
+            const filePath = `${checklist.folderPath}/${item.name}.md`;
+            const file = await this.app.vault.create(filePath, content);
+            files.push(file);
+        }
+
+        return files;
+    }
+
+    /**
+     * Merges provided properties with defaults from property definitions.
+     */
+    private mergeProperties(
+        definitions: PropertyDefinition[],
+        properties: Record<string, string | number | boolean>
+    ): Record<string, string | number | boolean> {
+        const merged: Record<string, string | number | boolean> = {};
+        for (const prop of definitions) {
             if (prop.name in properties) {
-                mergedProperties[prop.name] = properties[prop.name];
+                merged[prop.name] = properties[prop.name];
             } else if (prop.defaultValue !== undefined) {
-                mergedProperties[prop.name] = prop.defaultValue;
+                merged[prop.name] = prop.defaultValue;
             }
         }
-        // Include any extra properties not in the definition
         for (const [key, value] of Object.entries(properties)) {
-            if (!(key in mergedProperties)) {
-                mergedProperties[key] = value;
+            if (!(key in merged)) {
+                merged[key] = value;
             }
         }
-
-        const frontmatter = generateFrontmatter(mergedProperties);
-        const content = description ? `${frontmatter}\n\n${description}` : `${frontmatter}\n`;
-
-        const filePath = `${checklist.folderPath}/${name}.md`;
-        return await this.app.vault.create(filePath, content);
+        return merged;
     }
 
     /**
@@ -164,6 +220,94 @@ export class ChecklistManager {
     setActiveChecklist(id: string): void {
         this.settings.activeChecklistId = id;
         this.save();
+    }
+
+    /**
+     * Exports a single checklist as a markdown string.
+     */
+    async exportChecklistAsMarkdown(checklistId: string): Promise<string> {
+        const checklist = this.findChecklist(checklistId);
+        const items = await this.getItems(checklistId);
+
+        const lines: string[] = [`# ${checklist.name}`, ""];
+
+        for (const item of items) {
+            const status = item.completed ? "x" : " ";
+            lines.push(`- [${status}] ${item.name}`);
+
+            for (const prop of checklist.properties) {
+                const val = item.properties[prop.name];
+                if (val !== undefined && val !== "") {
+                    lines.push(`  - ${prop.name}: ${val}`);
+                }
+            }
+
+            if (item.description) {
+                lines.push(`  - ${item.description}`);
+            }
+        }
+
+        return lines.join("\n") + "\n";
+    }
+
+    /**
+     * Exports a single checklist as a JSON string.
+     */
+    async exportChecklistAsJson(checklistId: string): Promise<string> {
+        const checklist = this.findChecklist(checklistId);
+        const items = await this.getItems(checklistId);
+
+        const data = {
+            name: checklist.name,
+            properties: checklist.properties,
+            items: items.map((item) => ({
+                name: item.name,
+                properties: item.properties,
+                description: item.description,
+                completed: item.completed,
+            })),
+        };
+
+        return JSON.stringify(data, null, 2);
+    }
+
+    /**
+     * Exports all checklists as a combined markdown string.
+     */
+    async exportAllAsMarkdown(): Promise<string> {
+        const checklists = this.settings.checklists;
+        if (checklists.length === 0) return "";
+
+        const sections: string[] = [];
+        for (const checklist of checklists) {
+            sections.push(await this.exportChecklistAsMarkdown(checklist.id));
+        }
+
+        return sections.join("\n");
+    }
+
+    /**
+     * Exports all checklists as a JSON string.
+     */
+    async exportAllAsJson(): Promise<string> {
+        const checklists = this.settings.checklists;
+        const allData: any[] = [];
+
+        for (const checklist of checklists) {
+            const items = await this.getItems(checklist.id);
+            allData.push({
+                name: checklist.name,
+                properties: checklist.properties,
+                items: items.map((item) => ({
+                    name: item.name,
+                    properties: item.properties,
+                    description: item.description,
+                    completed: item.completed,
+                })),
+            });
+        }
+
+        return JSON.stringify({ checklists: allData }, null, 2);
     }
 
     /**

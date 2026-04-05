@@ -378,6 +378,29 @@ export class App {
     }
 }
 
+export class Menu {
+    addItem(cb: (item: MenuItem) => void): this {
+        cb(new MenuItem());
+        return this;
+    }
+
+    showAtMouseEvent(_event: MouseEvent): void {}
+}
+
+export class MenuItem {
+    setTitle(_title: string): this {
+        return this;
+    }
+
+    setIcon(_icon: string): this {
+        return this;
+    }
+
+    onClick(_callback: () => void): this {
+        return this;
+    }
+}
+
 export class Notice {
     constructor(_message: string, _timeout?: number) {}
 }
