@@ -1,4 +1,4 @@
-import { Modal, Setting, Notice } from "obsidian";
+import { App, Modal, Setting, Notice } from "obsidian";
 import { ChecklistManager } from "../services/ChecklistManager";
 import { ChecklistDefinition } from "../models/types";
 
@@ -15,11 +15,12 @@ export class ShareToChecklistModal extends Modal {
     private selectedChecklistId: string = "";
 
     constructor(
+        app: App,
         manager: ChecklistManager,
         sharedText: string,
         onItemAdded: (checklistId: string) => void
     ) {
-        super(manager.app);
+        super(app);
         this.manager = manager;
         this.sharedText = sharedText;
         this.onItemAdded = onItemAdded;

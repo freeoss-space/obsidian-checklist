@@ -954,9 +954,9 @@ var AddItemsModal = class extends import_obsidian6.Modal {
 // src/modals/ShareToChecklistModal.ts
 var import_obsidian7 = require("obsidian");
 var ShareToChecklistModal = class extends import_obsidian7.Modal {
-  constructor(manager, sharedText, onItemAdded) {
+  constructor(app, manager, sharedText, onItemAdded) {
     var _a;
-    super(manager.app);
+    super(app);
     this.itemName = "";
     this.description = "";
     this.selectedChecklistId = "";
@@ -1329,6 +1329,7 @@ var ChecklistPlugin = class extends import_obsidian8.Plugin {
   }
   openShareModal(sharedText) {
     new ShareToChecklistModal(
+      this.app,
       this.manager,
       sharedText,
       (checklistId) => {
