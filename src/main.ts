@@ -7,6 +7,7 @@ import { CreateListModal } from "./modals/CreateListModal";
 import { AddItemModal } from "./modals/AddItemModal";
 import { AddItemsModal } from "./modals/AddItemsModal";
 import { ShareToChecklistModal } from "./modals/ShareToChecklistModal";
+import { ChecklistSettingTab } from "./views/ChecklistSettingTab";
 import {
     ChecklistPluginSettings,
     DEFAULT_SETTINGS,
@@ -22,6 +23,8 @@ export default class ChecklistPlugin extends Plugin {
         this.manager = new ChecklistManager(this.app, this.settings, () =>
             this.saveSettings()
         );
+
+        this.addSettingTab(new ChecklistSettingTab(this.app, this));
 
         // Sidebar view (left) - shows checklist folders
         this.registerView(VIEW_TYPE_CHECKLIST_SIDEBAR, (leaf: WorkspaceLeaf) => {

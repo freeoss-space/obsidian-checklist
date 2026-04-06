@@ -41,7 +41,15 @@ export class ChecklistManager {
      * Creates a new checklist definition and its folder.
      */
     async createChecklist(name: string, properties: PropertyDefinition[]): Promise<ChecklistDefinition> {
-        const folderPath = `checklists/${name}`;
+        const baseFolder = (this.settings.checklistsFolder || "checklists").replace(/\/+$/, "");
+        const folderPath = `${baseFolder}/${name}`;
+        if (!this.app.vault.getAbstractFileByPath(baseFolder)) {
+            try {
+                await this.app.vault.createFolder(baseFolder);
+            } catch (e) {
+                // Folder may already exist
+            }
+        }
         const checklist: ChecklistDefinition = {
             id: generateId(),
             name,

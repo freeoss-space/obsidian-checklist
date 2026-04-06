@@ -41,9 +41,13 @@ export interface ChecklistItem {
 export interface ChecklistPluginSettings {
     checklists: ChecklistDefinition[];
     activeChecklistId: string | null;
+    checklistsFolder: string;
 }
+
+export const DEFAULT_CHECKLISTS_FOLDER = "checklists";
 
 export const DEFAULT_SETTINGS: ChecklistPluginSettings = {
     checklists: [],
     activeChecklistId: null,
+    checklistsFolder: DEFAULT_CHECKLISTS_FOLDER,
 };
