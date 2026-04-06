@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-checklist",
 	"name": "Checklist",
-	"version": "0.2.4",
+	"version": "0.2.5",
 	"minAppVersion": "0.15.0",
 	"description": "Create Bases-like checklist views with checkboxes. Items are markdown notes with front matter properties.",
 	"author": "freeoss-space",
