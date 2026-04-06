@@ -2,6 +2,9 @@ import { ItemView, WorkspaceLeaf, setIcon, Menu } from "obsidian";
 import { VIEW_TYPE_CHECKLIST, ICON_CHECKLIST } from "../constants";
 import { ChecklistManager } from "../services/ChecklistManager";
 import { ChecklistItem, ChecklistDefinition } from "../models/types";
+import { applyView, ViewState } from "../utils/applyView";
+import { SortDir } from "../utils/sort";
+import { StatusFilter } from "../utils/filter";
 
 /**
  * Main content view that displays items for the active checklist.
@@ -15,6 +18,8 @@ export class ChecklistView extends ItemView {
     private onDeleteItem: (filePath: string) => void;
     private onRefreshSidebar: () => void;
     private onExport: (format: "markdown" | "json") => void;
+    /** Per-checklist view state (sort + filter), kept in-memory only. */
+    private viewStateByChecklist: Map<string, ViewState> = new Map();
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -109,26 +114,53 @@ export class ChecklistView extends ItemView {
             menu.showAtMouseEvent(e);
         });
 
-        const items = await this.manager.getItems(checklist.id);
+        const allItems = await this.manager.getItems(checklist.id);
+        const state = this.getViewState(checklist.id);
+
+        // Toolbar (search + status filter)
+        this.renderToolbar(checklist, state);
+
+        const items = applyView(allItems, state);
         const listContainer = this.contentContainer.createDiv({ cls: "checklist-items" });
 
-        if (items.length === 0) {
+        if (allItems.length === 0) {
             listContainer.createEl("p", {
                 text: "No items yet. Add one to get started!",
                 cls: "checklist-no-items",
             });
         } else {
-            // Column headers
+            // Column headers (sortable)
             const headerRow = listContainer.createDiv({ cls: "checklist-header-row" });
             headerRow.createDiv({ cls: "checklist-col checklist-col-check", text: "" });
-            headerRow.createDiv({ cls: "checklist-col checklist-col-name", text: "Name" });
+            this.renderSortableHeader(
+                headerRow,
+                "checklist-col-name",
+                "Name",
+                "name",
+                checklist.id,
+                state
+            );
             for (const prop of checklist.properties) {
-                headerRow.createDiv({ cls: "checklist-col checklist-col-prop", text: prop.name });
+                this.renderSortableHeader(
+                    headerRow,
+                    "checklist-col-prop",
+                    prop.name,
+                    prop.name,
+                    checklist.id,
+                    state
+                );
             }
             headerRow.createDiv({ cls: "checklist-col checklist-col-actions", text: "" });
 
-            for (const item of items) {
-                this.renderItem(listContainer, item, checklist);
+            if (items.length === 0) {
+                listContainer.createEl("p", {
+                    text: "No items match the current filters.",
+                    cls: "checklist-no-items",
+                });
+            } else {
+                for (const item of items) {
+                    this.renderItem(listContainer, item, checklist);
+                }
             }
         }
 
@@ -200,6 +232,97 @@ export class ChecklistView extends ItemView {
                     .onClick(() => this.onDeleteItem(item.filePath));
             });
             menu.showAtMouseEvent(e);
+        });
+    }
+
+    private getViewState(checklistId: string): ViewState {
+        let state = this.viewStateByChecklist.get(checklistId);
+        if (!state) {
+            state = { filter: { query: "", status: "all" } };
+            this.viewStateByChecklist.set(checklistId, state);
+        }
+        return state;
+    }
+
+    private renderToolbar(checklist: ChecklistDefinition, state: ViewState): void {
+        const toolbar = this.contentContainer.createDiv({ cls: "checklist-toolbar" });
+
+        const search = toolbar.createEl("input", {
+            type: "text",
+            cls: "checklist-toolbar-search",
+            attr: { placeholder: "Search items...", "aria-label": "Search items" },
+        });
+        search.value = state.filter?.query ?? "";
+        search.addEventListener("input", async () => {
+            state.filter = { ...(state.filter ?? {}), query: search.value };
+            await this.renderView();
+            const next = this.contentContainer.querySelector(
+                ".checklist-toolbar-search"
+            ) as HTMLInputElement | null;
+            if (next) {
+                next.focus();
+                next.setSelectionRange(next.value.length, next.value.length);
+            }
+        });
+
+        const statusSelect = toolbar.createEl("select", {
+            cls: "checklist-toolbar-status",
+            attr: { "aria-label": "Status filter" },
+        });
+        for (const opt of [
+            { v: "all", label: "All" },
+            { v: "active", label: "Active" },
+            { v: "done", label: "Done" },
+        ]) {
+            const optEl = statusSelect.createEl("option", { text: opt.label });
+            optEl.value = opt.v;
+        }
+        statusSelect.value = state.filter?.status ?? "all";
+        statusSelect.addEventListener("change", async () => {
+            state.filter = {
+                ...(state.filter ?? {}),
+                status: statusSelect.value as StatusFilter,
+            };
+            await this.renderView();
+        });
+
+        const clearBtn = toolbar.createEl("button", {
+            cls: "checklist-toolbar-clear",
+            text: "Clear",
+            attr: { "aria-label": "Clear filters and sort" },
+        });
+        clearBtn.addEventListener("click", async () => {
+            this.viewStateByChecklist.set(checklist.id, {
+                filter: { query: "", status: "all" },
+            });
+            await this.renderView();
+        });
+    }
+
+    private renderSortableHeader(
+        parent: HTMLElement,
+        colCls: string,
+        label: string,
+        key: string,
+        checklistId: string,
+        state: ViewState
+    ): void {
+        const cell = parent.createDiv({
+            cls: `checklist-col ${colCls} checklist-col-sortable`,
+        });
+        cell.createSpan({ text: label });
+        const isActive = state.sort?.key === key;
+        const indicator = cell.createSpan({ cls: "checklist-sort-indicator" });
+        indicator.textContent = isActive ? (state.sort?.dir === "desc" ? " ↓" : " ↑") : "";
+        cell.addEventListener("click", async () => {
+            const current = state.sort;
+            let nextDir: SortDir = "asc";
+            if (current?.key === key) {
+                nextDir = current.dir === "asc" ? "desc" : "asc";
+            }
+            state.sort = { key, dir: nextDir };
+            this.viewStateByChecklist.set(checklistId, state);
+            await this.renderView();
         });
     }
 

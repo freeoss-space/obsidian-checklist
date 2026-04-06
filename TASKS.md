@@ -8,7 +8,8 @@ Planning doc for the Obsidian **Checklist** plugin (v0.2.3). Each feature is siz
 
 ### 1.1 Sorting & ordering (M) — _utility shipped_
 - ✅ Pure `sortItems(items, { key, dir })` in `src/utils/sort.ts` with built-in keys (`name`, `completed`, …) and arbitrary property keys; missing values sink, stable, non-mutating. Tested in `tests/utils/sort.test.ts`.
-- ⏳ Wire into `ChecklistView` header click + persist per checklist; manual `order` front-matter reorder.
+- ✅ Wired into `ChecklistView`: clickable column headers cycle asc/desc with arrow indicator; per-checklist sort kept in `viewStateByChecklist` (in-memory).
+- ⏳ Persist sort to `data.json`; manual `order` front-matter drag reorder.
 
 ### 1.1 (original)
 - **Why:** Items currently render in vault order. Users need to prioritize.
@@ -21,7 +22,8 @@ Planning doc for the Obsidian **Checklist** plugin (v0.2.3). Each feature is siz
 
 ### 1.2 Filtering & search (M) — _utility shipped_
 - ✅ Pure `filterItems(items, { query, status, properties })` in `src/utils/filter.ts`. Query searches name/description/property values (case-insensitive); status `all|active|done`; per-property equality and multi-value (OR) chips; criteria compose with AND. Tested in `tests/utils/filter.test.ts`.
-- ⏳ Toolbar UI in `ChecklistView`; range filter for number/date; fuzzy match.
+- ✅ Toolbar UI in `ChecklistView`: live search input + `All/Active/Done` status dropdown + Clear button. Empty-result state. Per-checklist filter kept in `viewStateByChecklist`.
+- ⏳ Per-property chip filters; range filter for number/date; fuzzy match; persistence.
 
 ### 1.2 (original)
 - **Why:** Long checklists are hard to scan.

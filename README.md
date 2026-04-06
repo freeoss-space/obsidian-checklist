@@ -12,8 +12,8 @@ Create **Bases-like checklist views** in Obsidian. Each checklist is a folder of
 - **Typed properties.** Built-in property types: `text`, `number`, `date`, `checkbox`, `dropdown`. New types planned (multi-select, url, rating, relation, formula).
 - **Toggle completion** straight from the view — writes back to the note's front matter.
 - **Add / share items.** Modal-based item creation, plus a Share-to-Checklist modal for the share intent on mobile.
-- **Sorting** _(utility shipped, UI in progress)_ — `sortItems()` supports any built-in field or custom property, ascending/descending, with stable ordering and "missing values last".
-- **Filtering & search** _(utility shipped, UI in progress)_ — `filterItems()` composes a free-text query (name + description + property values), an `all|active|done` status filter, and per-property equality / multi-value (OR) chips.
+- **Sorting.** Click any column header to sort asc/desc. Stable, missing values sink. Per-checklist state.
+- **Filtering & search.** Toolbar with live search (matches name + description + property values), `All / Active / Done` status filter, and a Clear button.
 - **Export** to Markdown (more formats planned: JSON, YAML, HTML, ICS).
 - **Mobile-friendly.** `isDesktopOnly: false`.
 
@@ -99,8 +99,8 @@ const ordered = sortItems(visible, { key: "due", dir: "asc" });
 ### Test status
 
 ```
-Test Suites: 6 passed
-Tests:       71 passed
+Test Suites: 7 passed
+Tests:       75 passed
 ```
 
 ---
