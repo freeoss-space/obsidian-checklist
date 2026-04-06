@@ -6,7 +6,12 @@ Planning doc for the Obsidian **Checklist** plugin (v0.2.3). Each feature is siz
 
 ## 1. Core Data Model
 
-### 1.1 Sorting & ordering (M)
+### 1.1 Sorting & ordering (M) — _utility shipped_
+- ✅ Pure `sortItems(items, { key, dir })` in `src/utils/sort.ts` with built-in keys (`name`, `completed`, …) and arbitrary property keys; missing values sink, stable, non-mutating. Tested in `tests/utils/sort.test.ts`.
+- ✅ Wired into `ChecklistView`: clickable column headers cycle asc/desc with arrow indicator; per-checklist sort kept in `viewStateByChecklist` (in-memory).
+- ⏳ Persist sort to `data.json`; manual `order` front-matter drag reorder.
+
+### 1.1 (original)
 - **Why:** Items currently render in vault order. Users need to prioritize.
 - **Design:**
   - Add `sortBy` + `sortDir` to `ChecklistDefinition` (default `name asc`).
@@ -15,7 +20,12 @@ Planning doc for the Obsidian **Checklist** plugin (v0.2.3). Each feature is siz
 - **Files:** `src/models/types.ts`, `src/services/ChecklistManager.ts`, `src/views/ChecklistView.ts`.
 - **Acceptance:** Header click toggles sort; persists per checklist; manual reorder writes `order` to front matter.
 
-### 1.2 Filtering & search (M)
+### 1.2 Filtering & search (M) — _utility shipped_
+- ✅ Pure `filterItems(items, { query, status, properties })` in `src/utils/filter.ts`. Query searches name/description/property values (case-insensitive); status `all|active|done`; per-property equality and multi-value (OR) chips; criteria compose with AND. Tested in `tests/utils/filter.test.ts`.
+- ✅ Toolbar UI in `ChecklistView`: live search input + `All/Active/Done` status dropdown + Clear button. Empty-result state. Per-checklist filter kept in `viewStateByChecklist`.
+- ⏳ Per-property chip filters; range filter for number/date; fuzzy match; persistence.
+
+### 1.2 (original)
 - **Why:** Long checklists are hard to scan.
 - **Design:** Toolbar input filters by name/description/property values; chip filters per property (multi-select for dropdown, range for number/date, all/active/done for checkbox). Fuzzy match for text.
 - **Files:** `ChecklistView.ts`, new `src/utils/filter.ts`.
