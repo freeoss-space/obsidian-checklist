@@ -56,11 +56,6 @@ export default class ChecklistPlugin extends Plugin {
             this.activateSidebar();
         });
 
-        // Auto-activate sidebar views on layout ready
-        this.app.workspace.onLayoutReady(() => {
-            this.activateSidebar();
-        });
-
         // Share intent handler (mobile share sheet + protocol handler)
         this.registerShareIntent();
 
@@ -129,8 +124,15 @@ export default class ChecklistPlugin extends Plugin {
     }
 
     onunload(): void {
+        // Detach open views so the sidebar entry and main view are removed
+        // from the workspace (context menus/sharing intent handlers registered
+        // via registerEvent / registerObsidianProtocolHandler are unregistered
+        // automatically by Obsidian when the plugin unloads).
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
+
+        // Remove persisted plugin data when the plugin is removed/unloaded.
+        void this.saveData({});
     }
 
     /**
