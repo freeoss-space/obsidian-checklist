@@ -34,14 +34,18 @@ function formatYamlValue(value: string | number | boolean): string {
  * Generates YAML front matter string from a properties record.
  * Always includes a `completed: false` field.
  */
-export function generateFrontmatter(properties: Record<string, string | number | boolean>): string {
+export function generateFrontmatter(
+    properties: Record<string, string | number | boolean>,
+    options: { includeCompleted?: boolean } = {}
+): string {
+    const includeCompleted = options.includeCompleted !== false;
     const lines: string[] = ["---"];
 
     for (const [key, value] of Object.entries(properties)) {
         lines.push(`${key}: ${formatYamlValue(value)}`);
     }
 
-    if (!("completed" in properties)) {
+    if (includeCompleted && !("completed" in properties)) {
         lines.push("completed: false");
     }
 

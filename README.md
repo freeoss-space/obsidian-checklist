@@ -9,6 +9,7 @@ Create **Bases-like checklist views** in Obsidian. Each checklist is a folder of
 ## Features
 
 - **Checklists from folders.** Pick a folder, define properties, get a Bases-style table of every note inside.
+- **Lists (no checkboxes).** Same table, minus the completion column — handy as a properties catalogue / inventory rather than a task tracker. Pick the kind (`Checklist` or `List`) when you create one. List items have no `completed` field and export as plain `- name` bullets.
 - **Typed properties.** Built-in property types: `text`, `number`, `date`, `checkbox`, `dropdown`. New types planned (multi-select, url, rating, relation, formula).
 - **Toggle completion** straight from the view — writes back to the note's front matter.
 - **Add / share items.** Modal-based item creation, plus a Share-to-Checklist modal for the share intent on mobile.

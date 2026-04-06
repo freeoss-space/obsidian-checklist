@@ -406,6 +406,44 @@ describe("ChecklistManager", () => {
         });
     });
 
+    describe("list kind (checklist without checks)", () => {
+        it("should default kind to 'checklist'", async () => {
+            const c = await manager.createChecklist("Tasks", []);
+            expect(c.kind).toBe("checklist");
+        });
+
+        it("should create a list with kind 'list' when specified", async () => {
+            const c = await manager.createChecklist("Books", [{ name: "Author", type: "text" }], "list");
+            expect(c.kind).toBe("list");
+        });
+
+        it("should not write completed front matter for list items", async () => {
+            const c = await manager.createChecklist("Books", [{ name: "Author", type: "text" }], "list");
+            const createSpy = jest.spyOn(app.vault, "create");
+            await manager.addItem(c.id, "Dune", { Author: "Herbert" }, "");
+            const [, content] = createSpy.mock.calls[0];
+            expect(content).toContain("Author: Herbert");
+            expect(content).not.toContain("completed:");
+        });
+
+        it("should always report list items as not completed", async () => {
+            const c = await manager.createChecklist("Books", [], "list");
+            await manager.addItem(c.id, "Dune", {}, "");
+            const items = await manager.getItems(c.id);
+            expect(items[0].completed).toBe(false);
+        });
+
+        it("should export a list as bullets without checkboxes", async () => {
+            const c = await manager.createChecklist("Books", [{ name: "Author", type: "text" }], "list");
+            await manager.addItem(c.id, "Dune", { Author: "Herbert" }, "");
+            const md = await manager.exportChecklistAsMarkdown(c.id);
+            expect(md).toContain("# Books");
+            expect(md).toContain("- Dune");
+            expect(md).not.toContain("- [ ] Dune");
+            expect(md).toContain("Author: Herbert");
+        });
+    });
+
     describe("setActiveChecklist", () => {
         it("should set a checklist as active", async () => {
             const c1 = await manager.createChecklist("Tasks 1", []);

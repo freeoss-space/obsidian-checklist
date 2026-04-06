@@ -1,5 +1,5 @@
 import { App, Modal, Setting, Notice } from "obsidian";
-import { PropertyDefinition, PropertyType } from "../models/types";
+import { ChecklistKind, PropertyDefinition, PropertyType } from "../models/types";
 
 /**
  * Modal for creating a new checklist.
@@ -7,12 +7,13 @@ import { PropertyDefinition, PropertyType } from "../models/types";
  */
 export class CreateListModal extends Modal {
     private listName: string = "";
+    private kind: ChecklistKind = "checklist";
     private properties: PropertyDefinition[] = [];
-    private onSubmit: (name: string, properties: PropertyDefinition[]) => void;
+    private onSubmit: (name: string, properties: PropertyDefinition[], kind: ChecklistKind) => void;
 
     constructor(
         app: App,
-        onSubmit: (name: string, properties: PropertyDefinition[]) => void
+        onSubmit: (name: string, properties: PropertyDefinition[], kind: ChecklistKind) => void
     ) {
         super(app);
         this.onSubmit = onSubmit;
@@ -23,12 +24,26 @@ export class CreateListModal extends Modal {
         contentEl.empty();
         contentEl.addClass("checklist-modal");
 
-        contentEl.createEl("h2", { text: "Create New Checklist" });
+        contentEl.createEl("h2", { text: "Create New List" });
+
+        // Kind picker
+        new Setting(contentEl)
+            .setName("Kind")
+            .setDesc("Checklist tracks completion with checkboxes; list omits checkboxes (use as a properties catalogue).")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("checklist", "Checklist (with checkboxes)")
+                    .addOption("list", "List (no checkboxes)")
+                    .setValue(this.kind)
+                    .onChange((value) => {
+                        this.kind = value as ChecklistKind;
+                    })
+            );
 
         // List name
         new Setting(contentEl)
-            .setName("Checklist name")
-            .setDesc("Name for the new checklist")
+            .setName("Name")
+            .setDesc("Name for the new list")
             .addText((text) =>
                 text
                     .setPlaceholder("My Tasks")
@@ -62,16 +77,16 @@ export class CreateListModal extends Modal {
         // Submit
         new Setting(contentEl).addButton((button) =>
             button
-                .setButtonText("Create Checklist")
+                .setButtonText("Create")
                 .setCta()
                 .onClick(() => {
                     if (!this.listName.trim()) {
-                        new Notice("Please enter a checklist name.");
+                        new Notice("Please enter a name.");
                         return;
                     }
                     // Filter out empty property names
                     const validProps = this.properties.filter((p) => p.name.trim());
-                    this.onSubmit(this.listName.trim(), validProps);
+                    this.onSubmit(this.listName.trim(), validProps, this.kind);
                     this.close();
                 })
         );

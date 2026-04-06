@@ -260,9 +260,9 @@ export default class ChecklistPlugin extends Plugin {
     }
 
     openCreateListModal(): void {
-        new CreateListModal(this.app, async (name, properties) => {
-            await this.manager.createChecklist(name, properties);
-            new Notice(`Checklist "${name}" created.`);
+        new CreateListModal(this.app, async (name, properties, kind) => {
+            await this.manager.createChecklist(name, properties, kind);
+            new Notice(`${kind === "list" ? "List" : "Checklist"} "${name}" created.`);
             this.refreshSidebar();
             await this.activateMainView();
             this.refreshMainView();
@@ -374,6 +374,10 @@ export default class ChecklistPlugin extends Plugin {
     async loadSettings(): Promise<void> {
         const data = await this.loadData();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+        // Migration: pre-existing checklists default to "checklist" kind.
+        for (const c of this.settings.checklists) {
+            if (!c.kind) c.kind = "checklist";
+        }
     }
 
     async saveSettings(): Promise<void> {
