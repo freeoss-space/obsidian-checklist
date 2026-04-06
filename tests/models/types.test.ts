@@ -28,6 +28,7 @@ describe("types", () => {
                     { name: "Due Date", type: "date" },
                 ],
                 createdAt: "2026-01-01T00:00:00.000Z",
+                kind: "checklist",
             };
             expect(def.id).toBe("abc-123");
             expect(def.properties).toHaveLength(2);

@@ -2,6 +2,7 @@ import { App, TFile } from "obsidian";
 import {
     ChecklistDefinition,
     ChecklistItem,
+    ChecklistKind,
     ChecklistPluginSettings,
     PropertyDefinition,
 } from "../models/types";
@@ -40,7 +41,11 @@ export class ChecklistManager {
     /**
      * Creates a new checklist definition and its folder.
      */
-    async createChecklist(name: string, properties: PropertyDefinition[]): Promise<ChecklistDefinition> {
+    async createChecklist(
+        name: string,
+        properties: PropertyDefinition[],
+        kind: ChecklistKind = "checklist"
+    ): Promise<ChecklistDefinition> {
         const baseFolder = (this.settings.checklistsFolder || "checklists").replace(/\/+$/, "");
         const folderPath = `${baseFolder}/${name}`;
         if (!this.app.vault.getAbstractFileByPath(baseFolder)) {
@@ -56,6 +61,7 @@ export class ChecklistManager {
             folderPath,
             properties,
             createdAt: new Date().toISOString(),
+            kind,
         };
 
         this.settings.checklists.push(checklist);
@@ -132,10 +138,13 @@ export class ChecklistManager {
 
         const checklist = this.findChecklist(checklistId);
         const files: TFile[] = [];
+        const isList = checklist.kind === "list";
 
         for (const item of items) {
             const mergedProperties = this.mergeProperties(checklist.properties, item.properties);
-            const frontmatter = generateFrontmatter(mergedProperties);
+            const frontmatter = generateFrontmatter(mergedProperties, {
+                includeCompleted: !isList,
+            });
             const content = item.description
                 ? `${frontmatter}\n\n${item.description}`
                 : `${frontmatter}\n`;
@@ -203,7 +212,10 @@ export class ChecklistManager {
                 name: file.basename,
                 description: parsed.body,
                 properties: parsed.properties,
-                completed: parsed.properties["completed"] === "true",
+                completed:
+                    checklist.kind === "list"
+                        ? false
+                        : parsed.properties["completed"] === "true",
             });
         }
 
@@ -239,9 +251,14 @@ export class ChecklistManager {
 
         const lines: string[] = [`# ${checklist.name}`, ""];
 
+        const isList = checklist.kind === "list";
         for (const item of items) {
-            const status = item.completed ? "x" : " ";
-            lines.push(`- [${status}] ${item.name}`);
+            if (isList) {
+                lines.push(`- ${item.name}`);
+            } else {
+                const status = item.completed ? "x" : " ";
+                lines.push(`- [${status}] ${item.name}`);
+            }
 
             for (const prop of checklist.properties) {
                 const val = item.properties[prop.name];

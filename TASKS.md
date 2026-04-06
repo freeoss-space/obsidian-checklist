@@ -6,6 +6,10 @@ Planning doc for the Obsidian **Checklist** plugin (v0.2.3). Each feature is siz
 
 ## 1. Core Data Model
 
+### 1.0 List kind (S) — _shipped_
+- ✅ `ChecklistDefinition.kind: "checklist" | "list"`. Lists omit the `completed` front-matter field, hide the checkbox column in the view, and export as plain `- item` bullets. Picked in `CreateListModal`. Pre-existing checklists migrate to `kind: "checklist"` on load. Tests in `tests/services/ChecklistManager.test.ts`.
+
+
 ### 1.1 Sorting & ordering (M) — _utility shipped_
 - ✅ Pure `sortItems(items, { key, dir })` in `src/utils/sort.ts` with built-in keys (`name`, `completed`, …) and arbitrary property keys; missing values sink, stable, non-mutating. Tested in `tests/utils/sort.test.ts`.
 - ✅ Wired into `ChecklistView`: clickable column headers cycle asc/desc with arrow indicator; per-checklist sort kept in `viewStateByChecklist` (in-memory).

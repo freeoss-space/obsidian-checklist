@@ -131,7 +131,9 @@ export class ChecklistView extends ItemView {
         } else {
             // Column headers (sortable)
             const headerRow = listContainer.createDiv({ cls: "checklist-header-row" });
-            headerRow.createDiv({ cls: "checklist-col checklist-col-check", text: "" });
+            if (checklist.kind !== "list") {
+                headerRow.createDiv({ cls: "checklist-col checklist-col-check", text: "" });
+            }
             this.renderSortableHeader(
                 headerRow,
                 "checklist-col-name",
@@ -175,20 +177,22 @@ export class ChecklistView extends ItemView {
     ): void {
         const row = container.createDiv({ cls: "checklist-item-row" });
 
-        // Checkbox
-        const checkCell = row.createDiv({ cls: "checklist-col checklist-col-check" });
-        const checkbox = checkCell.createEl("input", { type: "checkbox" });
-        checkbox.checked = item.completed;
-        checkbox.addEventListener("change", async () => {
-            if (checkbox.checked) {
-                row.addClass("checklist-item-completing");
-                setTimeout(async () => {
-                    await this.manager.completeItem(item.filePath);
-                    await this.renderView();
-                    this.onRefreshSidebar();
-                }, 300);
-            }
-        });
+        // Checkbox (only for checklist kind)
+        if (checklist.kind !== "list") {
+            const checkCell = row.createDiv({ cls: "checklist-col checklist-col-check" });
+            const checkbox = checkCell.createEl("input", { type: "checkbox" });
+            checkbox.checked = item.completed;
+            checkbox.addEventListener("change", async () => {
+                if (checkbox.checked) {
+                    row.addClass("checklist-item-completing");
+                    setTimeout(async () => {
+                        await this.manager.completeItem(item.filePath);
+                        await this.renderView();
+                        this.onRefreshSidebar();
+                    }, 300);
+                }
+            });
+        }
 
         // Name
         const nameCell = row.createDiv({ cls: "checklist-col checklist-col-name" });
