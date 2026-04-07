@@ -82,12 +82,12 @@ export class AddItemModal extends Modal {
             button
                 .setButtonText("Add Item")
                 .setCta()
-                .onClick(() => {
+                .onClick(async () => {
                     if (!this.itemName.trim()) {
                         new Notice("Please enter an item name.");
                         return;
                     }
-                    this.onSubmit(
+                    await this.onSubmit(
                         this.itemName.trim(),
                         { ...this.propertyValues },
                         this.description.trim()

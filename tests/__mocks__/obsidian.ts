@@ -1,5 +1,61 @@
 // Mock for the Obsidian API used in tests
 
+/**
+ * Patch an HTMLElement with Obsidian's convenience DOM methods.
+ * These are added by Obsidian's runtime but are absent in vanilla jsdom.
+ */
+function patchEl<T extends HTMLElement>(el: T): T {
+    (el as any).empty = function () {
+        while (this.firstChild) this.removeChild(this.firstChild);
+    };
+    (el as any).addClass = function (cls: string) {
+        this.classList.add(cls);
+        return this;
+    };
+    (el as any).removeClass = function (cls: string) {
+        this.classList.remove(cls);
+        return this;
+    };
+    (el as any).toggleClass = function (cls: string, force?: boolean) {
+        this.classList.toggle(cls, force);
+        return this;
+    };
+    (el as any).hasClass = function (cls: string): boolean {
+        return this.classList.contains(cls);
+    };
+    (el as any).createEl = function <K extends keyof HTMLElementTagNameMap>(
+        tag: K,
+        opts?: {
+            text?: string;
+            cls?: string;
+            type?: string;
+            attr?: Record<string, string>;
+        }
+    ): HTMLElementTagNameMap[K] {
+        const child = patchEl(document.createElement(tag));
+        if (opts?.text) child.textContent = opts.text;
+        if (opts?.cls) child.className = opts.cls;
+        if (opts?.type) (child as any).type = opts.type;
+        if (opts?.attr) {
+            for (const [k, v] of Object.entries(opts.attr)) {
+                child.setAttribute(k, v);
+            }
+        }
+        this.appendChild(child);
+        return child;
+    };
+    (el as any).createDiv = function (opts?: { cls?: string }): HTMLDivElement {
+        return (this as any).createEl("div", opts);
+    };
+    (el as any).createSpan = function (opts?: {
+        text?: string;
+        cls?: string;
+    }): HTMLSpanElement {
+        return (this as any).createEl("span", opts);
+    };
+    return el;
+}
+
 export class Plugin {
     app: App;
     manifest: any;
@@ -80,10 +136,10 @@ export class Modal {
 
     constructor(app: App) {
         this.app = app;
-        this.containerEl = document.createElement("div");
-        this.contentEl = document.createElement("div");
-        this.modalEl = document.createElement("div");
-        this.titleEl = document.createElement("div");
+        this.containerEl = patchEl(document.createElement("div"));
+        this.contentEl = patchEl(document.createElement("div"));
+        this.modalEl = patchEl(document.createElement("div"));
+        this.titleEl = patchEl(document.createElement("div"));
     }
 
     open() {}
@@ -99,11 +155,14 @@ export class Setting {
     controlEl: HTMLElement;
     private _name: string = "";
 
-    constructor(_containerEl: HTMLElement) {
-        this.settingEl = document.createElement("div");
+    constructor(containerEl: HTMLElement) {
+        this.settingEl = patchEl(document.createElement("div"));
         this.nameEl = document.createElement("div");
         this.descEl = document.createElement("div");
         this.controlEl = document.createElement("div");
+        this.settingEl.appendChild(this.nameEl);
+        this.settingEl.appendChild(this.controlEl);
+        containerEl.appendChild(this.settingEl);
     }
 
     setName(name: string): this {
@@ -199,11 +258,13 @@ export class TextAreaComponent {
 export class ButtonComponent {
     buttonEl: HTMLButtonElement;
 
-    constructor(_containerEl: HTMLElement) {
+    constructor(containerEl: HTMLElement) {
         this.buttonEl = document.createElement("button");
+        containerEl.appendChild(this.buttonEl);
     }
 
-    setButtonText(_text: string): this {
+    setButtonText(text: string): this {
+        this.buttonEl.textContent = text;
         return this;
     }
 
