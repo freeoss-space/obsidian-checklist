@@ -17,6 +17,12 @@ export class Plugin {
 
     addCommand(_command: any) {}
 
+    addSettingTab(_tab: any) {}
+
+    registerEvent(_evt: any) {}
+
+    registerObsidianProtocolHandler(_action: string, _cb: (params: any) => void) {}
+
     loadData(): Promise<any> {
         return Promise.resolve(null);
     }
@@ -24,6 +30,19 @@ export class Plugin {
     saveData(_data: any): Promise<void> {
         return Promise.resolve();
     }
+}
+
+export class PluginSettingTab {
+    app: App;
+    plugin: any;
+    containerEl: HTMLElement;
+    constructor(app: App, plugin: any) {
+        this.app = app;
+        this.plugin = plugin;
+        this.containerEl = document.createElement("div");
+    }
+    display(): void {}
+    hide(): void {}
 }
 
 export class ItemView {
@@ -368,6 +387,8 @@ export class Workspace {
     revealLeaf(_leaf: WorkspaceLeaf): void {}
 
     detachLeavesOfType(_type: string): void {}
+
+    onLayoutReady(_cb: () => void): void {}
 }
 
 export class App {
