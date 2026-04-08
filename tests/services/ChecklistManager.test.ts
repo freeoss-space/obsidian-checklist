@@ -459,4 +459,41 @@ describe("ChecklistManager", () => {
             expect(saveFn).toHaveBeenCalled();
         });
     });
+
+    describe("syncChecklistsFromFolder", () => {
+        it("should create default checklists from existing subfolders", async () => {
+            await app.vault.createFolder("projects");
+            await app.vault.createFolder("projects/Work");
+            await app.vault.createFolder("projects/Home");
+
+            await manager.syncChecklistsFromFolder("projects");
+
+            const settings = manager.getSettings();
+            expect(settings.checklists).toHaveLength(2);
+            expect(settings.checklists.map((c) => c.folderPath).sort()).toEqual([
+                "projects/Home",
+                "projects/Work",
+            ]);
+            expect(settings.checklists.every((c) => c.kind === "checklist")).toBe(true);
+            expect(settings.checklists.every((c) => c.properties.length === 0)).toBe(true);
+            expect(saveFn).toHaveBeenCalled();
+        });
+
+        it("should clear active checklist when it no longer exists after folder sync", async () => {
+            const existing = await manager.createChecklist("Legacy", []);
+            manager.setActiveChecklist(existing.id);
+            saveFn.mockClear();
+
+            await app.vault.createFolder("projects");
+            await app.vault.createFolder("projects/New");
+
+            await manager.syncChecklistsFromFolder("projects");
+
+            const settings = manager.getSettings();
+            expect(settings.activeChecklistId).toBeNull();
+            expect(settings.checklists).toHaveLength(1);
+            expect(settings.checklists[0].folderPath).toBe("projects/New");
+            expect(saveFn).toHaveBeenCalled();
+        });
+    });
 });

@@ -91,4 +91,24 @@ describe("ChecklistSettingTab", () => {
         expect(plugin.settings.checklistsFolder).toBe("checklists");
         expect(saveSettings).toHaveBeenCalledTimes(1);
     });
+
+    it("triggers checklist refresh callback when folder value changes", async () => {
+        const { app, plugin } = makePlugin("checklists");
+        const onChecklistsFolderUpdated = jest.fn().mockResolvedValue(undefined);
+        plugin.onChecklistsFolderUpdated = onChecklistsFolderUpdated;
+        const tab = new ChecklistSettingTab(app, plugin);
+        tab.display();
+
+        const input = tab.containerEl.querySelector("input") as HTMLInputElement;
+        input.value = "projects";
+        input.dispatchEvent(new Event("input"));
+
+        const button = tab.containerEl.querySelector("button") as HTMLButtonElement;
+        button.click();
+
+        await Promise.resolve();
+
+        expect(plugin.settings.checklistsFolder).toBe("projects");
+        expect(onChecklistsFolderUpdated).toHaveBeenCalledTimes(1);
+    });
 });

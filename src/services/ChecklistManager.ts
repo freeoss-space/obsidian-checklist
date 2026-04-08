@@ -1,4 +1,4 @@
-import { App, TFile } from "obsidian";
+import { App, TFile, TFolder } from "obsidian";
 import {
     ChecklistDefinition,
     ChecklistItem,
@@ -36,6 +36,37 @@ export class ChecklistManager {
 
     updateSettings(settings: ChecklistPluginSettings): void {
         this.settings = settings;
+    }
+
+    async syncChecklistsFromFolder(folder: string): Promise<void> {
+        const baseFolder = (folder || "checklists").trim().replace(/^\/+|\/+$/g, "") || "checklists";
+        const subfolderPaths = this.getImmediateSubfolderPaths(baseFolder);
+        const existingByPath = new Map(
+            this.settings.checklists.map((checklist) => [checklist.folderPath, checklist])
+        );
+
+        this.settings.checklists = subfolderPaths.map((folderPath) => {
+            const existing = existingByPath.get(folderPath);
+            if (existing) return existing;
+
+            return {
+                id: generateId(),
+                name: folderPath.split("/").pop() || folderPath,
+                folderPath,
+                properties: [],
+                createdAt: new Date().toISOString(),
+                kind: "checklist",
+            };
+        });
+
+        if (
+            this.settings.activeChecklistId &&
+            !this.settings.checklists.some((c) => c.id === this.settings.activeChecklistId)
+        ) {
+            this.settings.activeChecklistId = null;
+        }
+
+        await this.save();
     }
 
     /**
@@ -344,5 +375,33 @@ export class ChecklistManager {
             throw new Error("Checklist not found");
         }
         return checklist;
+    }
+
+    private getImmediateSubfolderPaths(baseFolder: string): string[] {
+        const paths = new Set<string>();
+        const prefix = `${baseFolder}/`;
+        const vaultWithLoadedFiles = this.app.vault as typeof this.app.vault & {
+            getAllLoadedFiles?: () => Array<TFile | TFolder>;
+        };
+        const loadedFiles = typeof vaultWithLoadedFiles.getAllLoadedFiles === "function"
+            ? vaultWithLoadedFiles.getAllLoadedFiles()
+            : this.app.vault.getMarkdownFiles();
+
+        for (const entry of loadedFiles) {
+            const path = entry.path as string;
+            if (!path || !path.startsWith(prefix)) continue;
+
+            const relative = path.slice(prefix.length);
+            if (!relative) continue;
+
+            const segment = relative.split("/")[0];
+            if (!segment) continue;
+
+            if (entry instanceof TFolder || relative.includes("/")) {
+                paths.add(`${baseFolder}/${segment}`);
+            }
+        }
+
+        return Array.from(paths).sort((a, b) => a.localeCompare(b));
     }
 }

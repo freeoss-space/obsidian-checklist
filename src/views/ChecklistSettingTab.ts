@@ -37,10 +37,17 @@ export class ChecklistSettingTab extends PluginSettingTab {
                     .setButtonText("Save")
                     .setCta()
                     .onClick(async () => {
+                        const previousFolder = this.plugin.settings.checklistsFolder;
                         const trimmed = pendingFolder.trim().replace(/^\/+|\/+$/g, "");
                         this.plugin.settings.checklistsFolder =
                             trimmed || DEFAULT_CHECKLISTS_FOLDER;
                         await this.plugin.saveSettings();
+                        if (
+                            this.plugin.settings.checklistsFolder !== previousFolder &&
+                            typeof this.plugin.onChecklistsFolderUpdated === "function"
+                        ) {
+                            await this.plugin.onChecklistsFolderUpdated();
+                        }
                         new Notice("Checklists folder saved.");
                     })
             );
