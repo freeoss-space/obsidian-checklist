@@ -1,48 +1,11 @@
 /* Checklist Plugin Styles */
 
 /* ===== Sidebar ===== */
+/* Uses Obsidian's native nav-files-container, nav-file, tree-item classes.
+   Action buttons live in the native view-header via addAction(). */
+
 .checklist-sidebar-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    padding: 0;
-}
-
-.checklist-sidebar-content {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
     overflow-y: auto;
-}
-
-.checklist-sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.checklist-sidebar-title {
-    font-weight: var(--font-semibold);
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.checklist-sidebar-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.checklist-sidebar-add-btn {
-    color: var(--text-muted);
-}
-
-.checklist-sidebar-add-btn:hover {
-    color: var(--text-normal);
 }
 
 .checklist-sidebar-empty {
@@ -52,60 +15,11 @@
     text-align: center;
 }
 
-.checklist-sidebar-list {
-    padding: 4px 0;
-}
-
-.checklist-sidebar-entry {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    cursor: pointer;
-    border-radius: 4px;
-    margin: 1px 4px;
-    font-size: var(--font-ui-small);
-    color: var(--text-normal);
-    transition: background 0.1s ease;
-}
-
-.checklist-sidebar-entry:hover {
-    background: var(--background-modifier-hover);
-}
-
-.checklist-sidebar-entry.is-active {
-    background: var(--background-modifier-active-hover);
-    font-weight: var(--font-medium);
-}
-
-.checklist-sidebar-entry-icon {
-    display: flex;
-    align-items: center;
-    color: var(--text-muted);
-    flex-shrink: 0;
-}
-
-.checklist-sidebar-entry-icon svg {
-    width: 16px;
-    height: 16px;
-}
-
-.checklist-sidebar-entry-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.checklist-sidebar-entry-count {
-    flex-shrink: 0;
-    font-size: var(--font-ui-smaller);
-    color: var(--text-faint);
-    background: var(--background-modifier-border);
-    padding: 0 6px;
-    border-radius: 10px;
-    min-width: 18px;
-    text-align: center;
+/* Active state highlight for the selected checklist entry */
+.checklist-sidebar-container .nav-file-title.is-active {
+    background: var(--nav-item-background-active);
+    color: var(--nav-item-color-active);
+    font-weight: var(--nav-item-weight-active);
 }
 
 /* ===== Main View Container ===== */
