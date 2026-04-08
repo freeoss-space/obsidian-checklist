@@ -1331,6 +1331,7 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
         }
       );
     });
+    await this.ensureSidebarEntry();
     this.addRibbonIcon(ICON_CHECKLIST, "Open Checklist", () => {
       this.activateSidebar();
     });
@@ -1433,6 +1434,18 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
       });
       this.app.workspace.revealLeaf(leaf);
     }
+  }
+  async ensureSidebarEntry() {
+    const sidebarLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
+    if (sidebarLeaves.length > 0)
+      return;
+    const leaf = this.app.workspace.getLeftLeaf(false);
+    if (!leaf)
+      return;
+    await leaf.setViewState({
+      type: VIEW_TYPE_CHECKLIST_SIDEBAR,
+      active: false
+    });
   }
   /**
    * Selects a checklist from the sidebar, sets it active, and opens the main view.

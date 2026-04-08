@@ -54,6 +54,8 @@ export default class ChecklistPlugin extends Plugin {
             );
         });
 
+        await this.ensureSidebarEntry();
+
         // Ribbon icon opens the sidebar
         this.addRibbonIcon(ICON_CHECKLIST, "Open Checklist", () => {
             this.activateSidebar();
@@ -178,6 +180,19 @@ export default class ChecklistPlugin extends Plugin {
             });
             this.app.workspace.revealLeaf(leaf);
         }
+    }
+
+    private async ensureSidebarEntry(): Promise<void> {
+        const sidebarLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
+        if (sidebarLeaves.length > 0) return;
+
+        const leaf = this.app.workspace.getLeftLeaf(false);
+        if (!leaf) return;
+
+        await leaf.setViewState({
+            type: VIEW_TYPE_CHECKLIST_SIDEBAR,
+            active: false,
+        });
     }
 
     /**
