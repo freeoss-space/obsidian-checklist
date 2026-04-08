@@ -443,7 +443,7 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
     this.onCreateList = onCreateList;
     this.onDeleteChecklist = onDeleteChecklist;
     this.onExport = onExport;
-    this.contentContainer = document.createElement("div");
+    this.listContainer = document.createElement("div");
   }
   getViewType() {
     return VIEW_TYPE_CHECKLIST_SIDEBAR;
@@ -455,26 +455,7 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
     return ICON_CHECKLIST;
   }
   async onOpen() {
-    const container = this.containerEl.children[1];
-    container.empty();
-    container.addClass("checklist-sidebar-container");
-    this.contentContainer = container.createDiv({ cls: "checklist-sidebar-content" });
-    await this.renderView();
-  }
-  async onClose() {
-    this.contentContainer.empty();
-  }
-  async renderView() {
-    this.contentContainer.empty();
-    const header = this.contentContainer.createDiv({ cls: "checklist-sidebar-header" });
-    header.createSpan({ text: "Checklists", cls: "checklist-sidebar-title" });
-    const headerActions = header.createDiv({ cls: "checklist-sidebar-header-actions" });
-    const exportBtn = headerActions.createEl("button", {
-      cls: "checklist-sidebar-add-btn clickable-icon",
-      attr: { "aria-label": "Export all checklists" }
-    });
-    (0, import_obsidian2.setIcon)(exportBtn, "download");
-    exportBtn.addEventListener("click", (e) => {
+    this.addAction("download", "Export all checklists", (e) => {
       const menu = new import_obsidian2.Menu();
       menu.addItem((item) => {
         item.setTitle("Export all as Markdown").setIcon("file-text").onClick(() => this.onExport(null, "markdown"));
@@ -484,52 +465,61 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
       });
       menu.showAtMouseEvent(e);
     });
-    const addBtn = headerActions.createEl("button", {
-      cls: "checklist-sidebar-add-btn clickable-icon",
-      attr: { "aria-label": "New checklist" }
+    this.addAction("plus", "New checklist", () => {
+      this.onCreateList();
     });
-    (0, import_obsidian2.setIcon)(addBtn, "plus");
-    addBtn.addEventListener("click", () => this.onCreateList());
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("nav-files-container", "checklist-sidebar-container");
+    this.listContainer = container.createDiv({ cls: "nav-folder-children" });
+    await this.renderView();
+  }
+  async onClose() {
+    this.listContainer.empty();
+  }
+  async renderView() {
+    this.listContainer.empty();
     const checklists = this.manager.getSettings().checklists;
     const activeId = this.manager.getSettings().activeChecklistId;
     if (checklists.length === 0) {
-      const empty = this.contentContainer.createDiv({ cls: "checklist-sidebar-empty" });
+      const empty = this.listContainer.createDiv({ cls: "checklist-sidebar-empty" });
       empty.createEl("p", { text: "No checklists yet." });
       return;
     }
-    const list = this.contentContainer.createDiv({ cls: "checklist-sidebar-list" });
     for (const checklist of checklists) {
-      this.renderChecklistEntry(list, checklist, checklist.id === activeId);
+      this.renderChecklistEntry(this.listContainer, checklist, checklist.id === activeId);
     }
   }
   renderChecklistEntry(container, checklist, isActive) {
-    const entry = container.createDiv({
-      cls: `checklist-sidebar-entry${isActive ? " is-active" : ""}`
+    const item = container.createDiv({ cls: "tree-item nav-file" });
+    const self = item.createDiv({
+      cls: `tree-item-self nav-file-title${isActive ? " is-active" : ""}`,
+      attr: { "data-path": checklist.id }
     });
-    const iconEl = entry.createSpan({ cls: "checklist-sidebar-entry-icon" });
+    const iconEl = self.createSpan({ cls: "tree-item-icon nav-file-title-icon" });
     (0, import_obsidian2.setIcon)(iconEl, ICON_CHECKLIST);
-    entry.createSpan({
+    self.createSpan({
       text: checklist.name,
-      cls: "checklist-sidebar-entry-name"
+      cls: "tree-item-inner nav-file-title-content"
     });
-    const countEl = entry.createSpan({ cls: "checklist-sidebar-entry-count" });
+    const countEl = self.createSpan({ cls: "tree-item-flair" });
     this.manager.getItems(checklist.id).then((items) => {
       countEl.setText(String(items.length));
     });
-    entry.addEventListener("click", () => {
+    self.addEventListener("click", () => {
       this.onSelectChecklist(checklist.id);
     });
-    entry.addEventListener("contextmenu", (e) => {
+    self.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const menu = new import_obsidian2.Menu();
-      menu.addItem((item) => {
-        item.setTitle("Export as Markdown").setIcon("file-text").onClick(() => this.onExport(checklist.id, "markdown"));
+      menu.addItem((menuItem) => {
+        menuItem.setTitle("Export as Markdown").setIcon("file-text").onClick(() => this.onExport(checklist.id, "markdown"));
       });
-      menu.addItem((item) => {
-        item.setTitle("Export as JSON").setIcon("braces").onClick(() => this.onExport(checklist.id, "json"));
+      menu.addItem((menuItem) => {
+        menuItem.setTitle("Export as JSON").setIcon("braces").onClick(() => this.onExport(checklist.id, "json"));
       });
-      menu.addItem((item) => {
-        item.setTitle("Delete checklist").setIcon("trash").onClick(() => this.onDeleteChecklist(checklist.id));
+      menu.addItem((menuItem) => {
+        menuItem.setTitle("Delete checklist").setIcon("trash").onClick(() => this.onDeleteChecklist(checklist.id));
       });
       menu.showAtMouseEvent(e);
     });
@@ -1452,7 +1442,6 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-    void this.saveData({});
   }
   /**
    * Opens the sidebar in the left panel.

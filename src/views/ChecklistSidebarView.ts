@@ -4,12 +4,14 @@ import { ChecklistManager } from "../services/ChecklistManager";
 import { ChecklistDefinition } from "../models/types";
 
 /**
- * Sidebar view that displays checklists as a folder tree.
+ * Sidebar view that displays checklists as a nav tree.
+ * Uses Obsidian's native view-header actions and tree-item patterns
+ * for consistent styling with the built-in file explorer.
  * Clicking a checklist opens the main ChecklistView with its items.
  */
 export class ChecklistSidebarView extends ItemView {
     private manager: ChecklistManager;
-    private contentContainer: HTMLElement;
+    private listContainer: HTMLElement;
     private onSelectChecklist: (id: string) => void;
     private onCreateList: () => void;
     private onDeleteChecklist: (id: string) => void;
@@ -29,7 +31,7 @@ export class ChecklistSidebarView extends ItemView {
         this.onCreateList = onCreateList;
         this.onDeleteChecklist = onDeleteChecklist;
         this.onExport = onExport;
-        this.contentContainer = document.createElement("div");
+        this.listContainer = document.createElement("div");
     }
 
     getViewType(): string {
@@ -45,33 +47,8 @@ export class ChecklistSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
-        const container = this.containerEl.children[1] as HTMLElement;
-        container.empty();
-        container.addClass("checklist-sidebar-container");
-
-        this.contentContainer = container.createDiv({ cls: "checklist-sidebar-content" });
-
-        await this.renderView();
-    }
-
-    async onClose(): Promise<void> {
-        this.contentContainer.empty();
-    }
-
-    async renderView(): Promise<void> {
-        this.contentContainer.empty();
-
-        // Header with action buttons
-        const header = this.contentContainer.createDiv({ cls: "checklist-sidebar-header" });
-        header.createSpan({ text: "Checklists", cls: "checklist-sidebar-title" });
-        const headerActions = header.createDiv({ cls: "checklist-sidebar-header-actions" });
-
-        const exportBtn = headerActions.createEl("button", {
-            cls: "checklist-sidebar-add-btn clickable-icon",
-            attr: { "aria-label": "Export all checklists" },
-        });
-        setIcon(exportBtn, "download");
-        exportBtn.addEventListener("click", (e) => {
+        // Action buttons in native view-header
+        this.addAction("download", "Export all checklists", (e) => {
             const menu = new Menu();
             menu.addItem((item) => {
                 item.setTitle("Export all as Markdown")
@@ -83,29 +60,40 @@ export class ChecklistSidebarView extends ItemView {
                     .setIcon("braces")
                     .onClick(() => this.onExport(null, "json"));
             });
-            menu.showAtMouseEvent(e);
+            menu.showAtMouseEvent(e as MouseEvent);
         });
 
-        const addBtn = headerActions.createEl("button", {
-            cls: "checklist-sidebar-add-btn clickable-icon",
-            attr: { "aria-label": "New checklist" },
+        this.addAction("plus", "New checklist", () => {
+            this.onCreateList();
         });
-        setIcon(addBtn, "plus");
-        addBtn.addEventListener("click", () => this.onCreateList());
+
+        const container = this.containerEl.children[1] as HTMLElement;
+        container.empty();
+        container.addClass("nav-files-container", "checklist-sidebar-container");
+
+        this.listContainer = container.createDiv({ cls: "nav-folder-children" });
+
+        await this.renderView();
+    }
+
+    async onClose(): Promise<void> {
+        this.listContainer.empty();
+    }
+
+    async renderView(): Promise<void> {
+        this.listContainer.empty();
 
         const checklists = this.manager.getSettings().checklists;
         const activeId = this.manager.getSettings().activeChecklistId;
 
         if (checklists.length === 0) {
-            const empty = this.contentContainer.createDiv({ cls: "checklist-sidebar-empty" });
+            const empty = this.listContainer.createDiv({ cls: "checklist-sidebar-empty" });
             empty.createEl("p", { text: "No checklists yet." });
             return;
         }
 
-        // Checklist list
-        const list = this.contentContainer.createDiv({ cls: "checklist-sidebar-list" });
         for (const checklist of checklists) {
-            this.renderChecklistEntry(list, checklist, checklist.id === activeId);
+            this.renderChecklistEntry(this.listContainer, checklist, checklist.id === activeId);
         }
     }
 
@@ -114,43 +102,44 @@ export class ChecklistSidebarView extends ItemView {
         checklist: ChecklistDefinition,
         isActive: boolean
     ): void {
-        const entry = container.createDiv({
-            cls: `checklist-sidebar-entry${isActive ? " is-active" : ""}`,
+        const item = container.createDiv({ cls: "tree-item nav-file" });
+        const self = item.createDiv({
+            cls: `tree-item-self nav-file-title${isActive ? " is-active" : ""}`,
+            attr: { "data-path": checklist.id },
         });
 
-        const iconEl = entry.createSpan({ cls: "checklist-sidebar-entry-icon" });
+        const iconEl = self.createSpan({ cls: "tree-item-icon nav-file-title-icon" });
         setIcon(iconEl, ICON_CHECKLIST);
 
-        entry.createSpan({
+        self.createSpan({
             text: checklist.name,
-            cls: "checklist-sidebar-entry-name",
+            cls: "tree-item-inner nav-file-title-content",
         });
 
-        const countEl = entry.createSpan({ cls: "checklist-sidebar-entry-count" });
-        // Load count async
+        const countEl = self.createSpan({ cls: "tree-item-flair" });
         this.manager.getItems(checklist.id).then((items) => {
             countEl.setText(String(items.length));
         });
 
-        entry.addEventListener("click", () => {
+        self.addEventListener("click", () => {
             this.onSelectChecklist(checklist.id);
         });
 
-        entry.addEventListener("contextmenu", (e) => {
+        self.addEventListener("contextmenu", (e) => {
             e.preventDefault();
             const menu = new Menu();
-            menu.addItem((item) => {
-                item.setTitle("Export as Markdown")
+            menu.addItem((menuItem) => {
+                menuItem.setTitle("Export as Markdown")
                     .setIcon("file-text")
                     .onClick(() => this.onExport(checklist.id, "markdown"));
             });
-            menu.addItem((item) => {
-                item.setTitle("Export as JSON")
+            menu.addItem((menuItem) => {
+                menuItem.setTitle("Export as JSON")
                     .setIcon("braces")
                     .onClick(() => this.onExport(checklist.id, "json"));
             });
-            menu.addItem((item) => {
-                item.setTitle("Delete checklist")
+            menu.addItem((menuItem) => {
+                menuItem.setTitle("Delete checklist")
                     .setIcon("trash")
                     .onClick(() => this.onDeleteChecklist(checklist.id));
             });
