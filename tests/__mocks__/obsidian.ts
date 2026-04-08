@@ -35,11 +35,13 @@ export class Plugin {
 export class PluginSettingTab {
     app: App;
     plugin: any;
-    containerEl: HTMLElement;
+    containerEl: HTMLElement & { empty(): void };
     constructor(app: App, plugin: any) {
         this.app = app;
         this.plugin = plugin;
-        this.containerEl = document.createElement("div");
+        const el = document.createElement("div") as HTMLElement & { empty(): void };
+        el.empty = function () { this.innerHTML = ""; };
+        this.containerEl = el;
     }
     display(): void {}
     hide(): void {}
@@ -99,11 +101,15 @@ export class Setting {
     controlEl: HTMLElement;
     private _name: string = "";
 
-    constructor(_containerEl: HTMLElement) {
+    constructor(containerEl: HTMLElement) {
         this.settingEl = document.createElement("div");
         this.nameEl = document.createElement("div");
         this.descEl = document.createElement("div");
         this.controlEl = document.createElement("div");
+        this.settingEl.appendChild(this.nameEl);
+        this.settingEl.appendChild(this.descEl);
+        this.settingEl.appendChild(this.controlEl);
+        containerEl.appendChild(this.settingEl);
     }
 
     setName(name: string): this {
@@ -145,9 +151,15 @@ export class Setting {
 export class TextComponent {
     inputEl: HTMLInputElement;
     private _value: string = "";
+    private _onChange: ((value: string) => void) | null = null;
 
-    constructor(_containerEl: HTMLElement) {
+    constructor(containerEl: HTMLElement) {
         this.inputEl = document.createElement("input");
+        this.inputEl.addEventListener("input", () => {
+            this._value = this.inputEl.value;
+            if (this._onChange) this._onChange(this._value);
+        });
+        containerEl.appendChild(this.inputEl);
     }
 
     setValue(value: string): this {
@@ -164,7 +176,8 @@ export class TextComponent {
         return this;
     }
 
-    onChange(_callback: (value: string) => void): this {
+    onChange(callback: (value: string) => void): this {
+        this._onChange = callback;
         return this;
     }
 }
@@ -199,8 +212,9 @@ export class TextAreaComponent {
 export class ButtonComponent {
     buttonEl: HTMLButtonElement;
 
-    constructor(_containerEl: HTMLElement) {
+    constructor(containerEl: HTMLElement) {
         this.buttonEl = document.createElement("button");
+        containerEl.appendChild(this.buttonEl);
     }
 
     setButtonText(_text: string): this {

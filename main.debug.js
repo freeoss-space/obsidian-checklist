@@ -1280,13 +1280,19 @@ var ChecklistSettingTab = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+    let pendingFolder = this.plugin.settings.checklistsFolder;
     new import_obsidian8.Setting(containerEl).setName("Checklists folder").setDesc(
       "The main folder where checklists are stored. New checklists will be created as subfolders of this folder."
     ).addText(
-      (text) => text.setPlaceholder(DEFAULT_CHECKLISTS_FOLDER).setValue(this.plugin.settings.checklistsFolder).onChange(async (value) => {
-        const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
+      (text) => text.setPlaceholder(DEFAULT_CHECKLISTS_FOLDER).setValue(this.plugin.settings.checklistsFolder).onChange((value) => {
+        pendingFolder = value;
+      })
+    ).addButton(
+      (button) => button.setButtonText("Save").setCta().onClick(async () => {
+        const trimmed = pendingFolder.trim().replace(/^\/+|\/+$/g, "");
         this.plugin.settings.checklistsFolder = trimmed || DEFAULT_CHECKLISTS_FOLDER;
         await this.plugin.saveSettings();
+        new import_obsidian8.Notice("Checklists folder saved.");
       })
     );
   }
