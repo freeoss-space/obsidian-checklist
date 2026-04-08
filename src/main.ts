@@ -59,12 +59,6 @@ export default class ChecklistPlugin extends Plugin {
             this.activateSidebar();
         });
 
-        // Auto-open the checklist sidebar entry once the workspace is ready
-        // so users see the panel without needing to run a command first.
-        this.app.workspace.onLayoutReady(() => {
-            this.activateSidebar();
-        });
-
         // Share intent handler (mobile share sheet + protocol handler)
         this.registerShareIntent();
 
