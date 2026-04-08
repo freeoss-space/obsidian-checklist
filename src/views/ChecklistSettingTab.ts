@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ChecklistPlugin from "../main";
 import { DEFAULT_CHECKLISTS_FOLDER } from "../models/types";
 
@@ -17,6 +17,8 @@ export class ChecklistSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
+        let pendingFolder = this.plugin.settings.checklistsFolder;
+
         new Setting(containerEl)
             .setName("Checklists folder")
             .setDesc(
@@ -26,11 +28,20 @@ export class ChecklistSettingTab extends PluginSettingTab {
                 text
                     .setPlaceholder(DEFAULT_CHECKLISTS_FOLDER)
                     .setValue(this.plugin.settings.checklistsFolder)
-                    .onChange(async (value) => {
-                        const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
+                    .onChange((value) => {
+                        pendingFolder = value;
+                    })
+            )
+            .addButton((button) =>
+                button
+                    .setButtonText("Save")
+                    .setCta()
+                    .onClick(async () => {
+                        const trimmed = pendingFolder.trim().replace(/^\/+|\/+$/g, "");
                         this.plugin.settings.checklistsFolder =
                             trimmed || DEFAULT_CHECKLISTS_FOLDER;
                         await this.plugin.saveSettings();
+                        new Notice("Checklists folder saved.");
                     })
             );
     }
