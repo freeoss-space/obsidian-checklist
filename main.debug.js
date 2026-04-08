@@ -1626,15 +1626,20 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
     });
     try {
       if (this.app.isMobile) {
+        const addToChecklistMenuItem = (menu, text) => {
+          menu.addItem((item) => {
+            item.setTitle("Add to Checklist").setIcon(ICON_CHECKLIST).onClick(() => {
+              this.openShareModal(text);
+            });
+          });
+        };
         this.registerEvent(
           // @ts-ignore
-          this.app.workspace.on("receive-text-menu", (menu, text) => {
-            menu.addItem((item) => {
-              item.setTitle("Add to Checklist").setIcon(ICON_CHECKLIST).onClick(() => {
-                this.openShareModal(text);
-              });
-            });
-          })
+          this.app.workspace.on("receive-text-menu", addToChecklistMenuItem)
+        );
+        this.registerEvent(
+          // @ts-ignore
+          this.app.workspace.on("receive-url-menu", addToChecklistMenuItem)
         );
       }
     } catch (e) {

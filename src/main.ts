@@ -351,18 +351,26 @@ export default class ChecklistPlugin extends Plugin {
         try {
             // @ts-ignore - Obsidian mobile internal API for share intent
             if (this.app.isMobile) {
+                const addToChecklistMenuItem = (menu: Menu, text: string) => {
+                    menu.addItem((item: any) => {
+                        item.setTitle("Add to Checklist")
+                            .setIcon(ICON_CHECKLIST)
+                            .onClick(() => {
+                                this.openShareModal(text);
+                            });
+                    });
+                };
+
                 // @ts-ignore
                 this.registerEvent(
                     // @ts-ignore
-                    this.app.workspace.on("receive-text-menu", (menu: Menu, text: string) => {
-                        menu.addItem((item: any) => {
-                            item.setTitle("Add to Checklist")
-                                .setIcon(ICON_CHECKLIST)
-                                .onClick(() => {
-                                    this.openShareModal(text);
-                                });
-                        });
-                    }),
+                    this.app.workspace.on("receive-text-menu", addToChecklistMenuItem),
+                );
+
+                // @ts-ignore
+                this.registerEvent(
+                    // @ts-ignore
+                    this.app.workspace.on("receive-url-menu", addToChecklistMenuItem),
                 );
             }
         } catch (e) {
