@@ -614,6 +614,30 @@ var ChecklistManager = class {
   updateSettings(settings) {
     this.settings = settings;
   }
+  async syncChecklistsFromFolder(folder) {
+    const baseFolder = (folder || "checklists").trim().replace(/^\/+|\/+$/g, "") || "checklists";
+    const subfolderPaths = this.getImmediateSubfolderPaths(baseFolder);
+    const existingByPath = new Map(
+      this.settings.checklists.map((checklist) => [checklist.folderPath, checklist])
+    );
+    this.settings.checklists = subfolderPaths.map((folderPath) => {
+      const existing = existingByPath.get(folderPath);
+      if (existing)
+        return existing;
+      return {
+        id: generateId(),
+        name: folderPath.split("/").pop() || folderPath,
+        folderPath,
+        properties: [],
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        kind: "checklist"
+      };
+    });
+    if (this.settings.activeChecklistId && !this.settings.checklists.some((c) => c.id === this.settings.activeChecklistId)) {
+      this.settings.activeChecklistId = null;
+    }
+    await this.save();
+  }
   /**
    * Creates a new checklist definition and its folder.
    */
@@ -860,6 +884,27 @@ ${item.description}` : `${frontmatter}
       throw new Error("Checklist not found");
     }
     return checklist;
+  }
+  getImmediateSubfolderPaths(baseFolder) {
+    const paths = /* @__PURE__ */ new Set();
+    const prefix = `${baseFolder}/`;
+    const vault = this.app.vault;
+    const loadedFiles = typeof vault.getAllLoadedFiles === "function" ? vault.getAllLoadedFiles() : this.app.vault.getMarkdownFiles();
+    for (const entry of loadedFiles) {
+      const path = entry.path;
+      if (!path || !path.startsWith(prefix))
+        continue;
+      const relative = path.slice(prefix.length);
+      if (!relative)
+        continue;
+      const segment = relative.split("/")[0];
+      if (!segment)
+        continue;
+      if (entry instanceof import_obsidian3.TFolder || relative.includes("/")) {
+        paths.add(`${baseFolder}/${segment}`);
+      }
+    }
+    return Array.from(paths).sort((a, b) => a.localeCompare(b));
   }
 };
 
@@ -1289,9 +1334,13 @@ var ChecklistSettingTab = class extends import_obsidian8.PluginSettingTab {
       })
     ).addButton(
       (button) => button.setButtonText("Save").setCta().onClick(async () => {
+        const previousFolder = this.plugin.settings.checklistsFolder;
         const trimmed = pendingFolder.trim().replace(/^\/+|\/+$/g, "");
         this.plugin.settings.checklistsFolder = trimmed || DEFAULT_CHECKLISTS_FOLDER;
         await this.plugin.saveSettings();
+        if (this.plugin.settings.checklistsFolder !== previousFolder && typeof this.plugin.onChecklistsFolderUpdated === "function") {
+          await this.plugin.onChecklistsFolderUpdated();
+        }
         new import_obsidian8.Notice("Checklists folder saved.");
       })
     );
@@ -1624,5 +1673,10 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  async onChecklistsFolderUpdated() {
+    await this.manager.syncChecklistsFromFolder(this.settings.checklistsFolder);
+    this.refreshSidebar();
+    this.refreshMainView();
   }
 };

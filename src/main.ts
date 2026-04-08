@@ -398,4 +398,10 @@ export default class ChecklistPlugin extends Plugin {
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
     }
+
+    async onChecklistsFolderUpdated(): Promise<void> {
+        await this.manager.syncChecklistsFromFolder(this.settings.checklistsFolder);
+        this.refreshSidebar();
+        this.refreshMainView();
+    }
 }

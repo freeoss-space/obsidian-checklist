@@ -331,6 +331,7 @@ export class TFolder {
 
 export class Vault {
     private files: Map<string, string> = new Map();
+    private folders: Set<string> = new Set();
 
     async create(path: string, content: string): Promise<TFile> {
         this.files.set(path, content);
@@ -350,12 +351,15 @@ export class Vault {
     }
 
     async createFolder(path: string): Promise<void> {
-        // no-op in mock
+        this.folders.add(path);
     }
 
     getAbstractFileByPath(path: string): TFile | TFolder | null {
         if (this.files.has(path)) {
             return new TFile(path);
+        }
+        if (this.folders.has(path)) {
+            return new TFolder(path);
         }
         return null;
     }
@@ -366,6 +370,13 @@ export class Vault {
 
     getFiles(): TFile[] {
         return this.getMarkdownFiles();
+    }
+
+    getAllLoadedFiles(): (TFile | TFolder)[] {
+        return [
+            ...Array.from(this.folders).map((p) => new TFolder(p)),
+            ...Array.from(this.files.keys()).map((p) => new TFile(p)),
+        ];
     }
 }
 
