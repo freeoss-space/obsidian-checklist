@@ -135,9 +135,6 @@ export default class ChecklistPlugin extends Plugin {
         // automatically by Obsidian when the plugin unloads).
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-
-        // Remove persisted plugin data when the plugin is removed/unloaded.
-        void this.saveData({});
     }
 
     /**
