@@ -120,6 +120,15 @@ export class AddItemModal extends Modal {
                 break;
 
             case "text":
+                setting.addText((text) =>
+                    text
+                        .setPlaceholder(`Enter ${prop.name}`)
+                        .setValue(String(this.propertyValues[prop.name] || ""))
+                        .onChange((value) => {
+                            this.propertyValues[prop.name] = value;
+                        })
+                );
+                break;
 
             case "number":
                 setting.addText((text) =>
