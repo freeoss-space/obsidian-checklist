@@ -44,9 +44,9 @@ export class ChecklistSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                         if (
                             this.plugin.settings.checklistsFolder !== previousFolder &&
-                            typeof (this.plugin as any).onChecklistsFolderUpdated === "function"
+                            typeof this.plugin.onChecklistsFolderUpdated === "function"
                         ) {
-                            await (this.plugin as any).onChecklistsFolderUpdated();
+                            await this.plugin.onChecklistsFolderUpdated();
                         }
                         new Notice("Checklists folder saved.");
                     })

@@ -888,8 +888,8 @@ ${item.description}` : `${frontmatter}
   getImmediateSubfolderPaths(baseFolder) {
     const paths = /* @__PURE__ */ new Set();
     const prefix = `${baseFolder}/`;
-    const vault = this.app.vault;
-    const loadedFiles = typeof vault.getAllLoadedFiles === "function" ? vault.getAllLoadedFiles() : this.app.vault.getMarkdownFiles();
+    const vaultWithLoadedFiles = this.app.vault;
+    const loadedFiles = typeof vaultWithLoadedFiles.getAllLoadedFiles === "function" ? vaultWithLoadedFiles.getAllLoadedFiles() : this.app.vault.getMarkdownFiles();
     for (const entry of loadedFiles) {
       const path = entry.path;
       if (!path || !path.startsWith(prefix))

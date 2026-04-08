@@ -380,9 +380,11 @@ export class ChecklistManager {
     private getImmediateSubfolderPaths(baseFolder: string): string[] {
         const paths = new Set<string>();
         const prefix = `${baseFolder}/`;
-        const vault = this.app.vault as any;
-        const loadedFiles = typeof vault.getAllLoadedFiles === "function"
-            ? vault.getAllLoadedFiles()
+        const vaultWithLoadedFiles = this.app.vault as typeof this.app.vault & {
+            getAllLoadedFiles?: () => Array<TFile | TFolder>;
+        };
+        const loadedFiles = typeof vaultWithLoadedFiles.getAllLoadedFiles === "function"
+            ? vaultWithLoadedFiles.getAllLoadedFiles()
             : this.app.vault.getMarkdownFiles();
 
         for (const entry of loadedFiles) {
