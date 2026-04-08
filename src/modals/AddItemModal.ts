@@ -108,17 +108,18 @@ export class AddItemModal extends Modal {
         const setting = new Setting(container).setName(prop.name);
 
         switch (prop.type) {
-            case "text":
             case "date":
-                setting.addText((text) =>
+                setting.addText((text) => {
+                    text.inputEl.type = "date";
                     text
-                        .setPlaceholder(prop.type === "date" ? "YYYY-MM-DD" : `Enter ${prop.name}`)
                         .setValue(String(this.propertyValues[prop.name] || ""))
                         .onChange((value) => {
                             this.propertyValues[prop.name] = value;
-                        })
-                );
+                        });
+                });
                 break;
+
+            case "text":
 
             case "number":
                 setting.addText((text) =>

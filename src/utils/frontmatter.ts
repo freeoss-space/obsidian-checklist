@@ -61,6 +61,8 @@ export interface ParsedFrontmatter {
 /**
  * Parses YAML front matter and body from a markdown string.
  * Uses simple line-by-line parsing (no external YAML library needed).
+ * Handles scalar values, quoted strings, YAML list items (- value),
+ * and skips comment lines (# ...).
  */
 export function parseFrontmatter(content: string): ParsedFrontmatter {
     const trimmed = content.trim();
@@ -84,25 +86,52 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
     }
 
     const properties: Record<string, string> = {};
+    let lastKey: string | null = null;
+    const listAccumulator: string[] = [];
+
+    const flushList = () => {
+        if (lastKey !== null && listAccumulator.length > 0) {
+            properties[lastKey] = listAccumulator.join(", ");
+            listAccumulator.length = 0;
+        }
+    };
 
     for (let i = 1; i < endIndex; i++) {
         const line = lines[i];
+
+        // Skip YAML comment lines
+        if (line.trimStart().startsWith("#")) continue;
+
+        // YAML list item (indented "- value")
+        const listMatch = line.match(/^[ \t]+-[ \t]+(.*)/);
+        if (listMatch) {
+            listAccumulator.push(listMatch[1].trim());
+            continue;
+        }
+
+        // Flush any accumulated list before processing a new key
+        flushList();
+
         const colonIndex = line.indexOf(":");
         if (colonIndex === -1) continue;
 
         const key = line.substring(0, colonIndex).trim();
+        if (!key) continue;
         let value = line.substring(colonIndex + 1).trim();
 
-        // Remove surrounding quotes
-        if (
-            (value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))
-        ) {
-            value = value.slice(1, -1);
+        // Remove surrounding quotes, unescaping inner escaped quotes
+        if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1).replace(/\\"/g, '"');
+        } else if (value.startsWith("'") && value.endsWith("'")) {
+            value = value.slice(1, -1).replace(/''/g, "'");
         }
 
+        lastKey = key;
         properties[key] = value;
     }
+
+    // Flush any trailing list
+    flushList();
 
     const bodyLines = lines.slice(endIndex + 1);
     const body = bodyLines.join("\n").trim();

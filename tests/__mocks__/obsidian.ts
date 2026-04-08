@@ -354,6 +354,10 @@ export class Vault {
         this.folders.add(path);
     }
 
+    on(_event: string, _callback: (...args: any[]) => any): any {
+        return { unsubscribe: () => {} };
+    }
+
     getAbstractFileByPath(path: string): TFile | TFolder | null {
         if (this.files.has(path)) {
             return new TFile(path);

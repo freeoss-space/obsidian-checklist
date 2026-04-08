@@ -441,3 +441,44 @@
     opacity: 0.7;
     margin-left: 2px;
 }
+
+/* ===== Completed item strikethrough (item 9) ===== */
+.checklist-item-row.is-completed .checklist-item-name {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+/* ===== Progress bar (item 5) ===== */
+.checklist-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 6px 8px;
+}
+.checklist-progress-label {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.checklist-progress-bar {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--background-modifier-border);
+    overflow: hidden;
+}
+.checklist-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--color-green);
+    transition: width 0.3s ease;
+}
+
+/* ===== Clickable item name (item 3) ===== */
+.checklist-item-name {
+    cursor: pointer;
+}
+.checklist-item-name:hover {
+    color: var(--text-accent);
+    text-decoration: underline;
+}

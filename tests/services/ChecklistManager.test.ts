@@ -181,6 +181,37 @@ describe("ChecklistManager", () => {
         });
     });
 
+    describe("setItemCompletion", () => {
+        it("should write completed: true to frontmatter without deleting the file", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+
+            const deleteSpy = jest.spyOn(app.vault, "delete");
+            await manager.setItemCompletion("checklists/Tasks/Task 1.md", true);
+
+            expect(deleteSpy).not.toHaveBeenCalled();
+            const items = await manager.getItems(checklist.id);
+            expect(items[0].completed).toBe(true);
+        });
+
+        it("should write completed: false to frontmatter (uncheck)", async () => {
+            const checklist = await manager.createChecklist("Tasks", []);
+            await manager.addItem(checklist.id, "Task 1", {}, "");
+
+            await manager.setItemCompletion("checklists/Tasks/Task 1.md", true);
+            await manager.setItemCompletion("checklists/Tasks/Task 1.md", false);
+
+            const items = await manager.getItems(checklist.id);
+            expect(items[0].completed).toBe(false);
+        });
+
+        it("should do nothing if the file does not exist", async () => {
+            await expect(
+                manager.setItemCompletion("checklists/Tasks/Nonexistent.md", true)
+            ).resolves.toBeUndefined();
+        });
+    });
+
     describe("getItems", () => {
         it("should return items for a checklist", async () => {
             const checklist = await manager.createChecklist("Tasks", [
@@ -403,6 +434,72 @@ describe("ChecklistManager", () => {
             const jsonStr = await manager.exportAllAsJson();
             const parsed = JSON.parse(jsonStr);
             expect(parsed.checklists).toEqual([]);
+        });
+    });
+
+    describe("exportChecklistAsCsv", () => {
+        it("should export a checklist as CSV with headers and data rows", async () => {
+            const c = await manager.createChecklist("Tasks", [
+                { name: "Priority", type: "text" },
+            ]);
+            await manager.addItem(c.id, "Task 1", { Priority: "High" }, "Do it");
+
+            const csv = await manager.exportChecklistAsCsv(c.id);
+            const lines = csv.trim().split("\n");
+
+            expect(lines[0]).toBe("name,completed,Priority,description");
+            expect(lines[1]).toContain("Task 1");
+            expect(lines[1]).toContain("High");
+            expect(lines[1]).toContain("Do it");
+        });
+
+        it("should escape commas and quotes in CSV values", async () => {
+            const c = await manager.createChecklist("Tasks", [{ name: "Note", type: "text" }]);
+            await manager.addItem(c.id, "Task, One", { Note: 'say "hi"' }, "");
+
+            const csv = await manager.exportChecklistAsCsv(c.id);
+            expect(csv).toContain('"Task, One"');
+            expect(csv).toContain('"say ""hi"""');
+        });
+
+        it("should omit completed column for list kind", async () => {
+            const c = await manager.createChecklist("Books", [], "list");
+            await manager.addItem(c.id, "Dune", {}, "");
+
+            const csv = await manager.exportChecklistAsCsv(c.id);
+            const header = csv.split("\n")[0];
+            expect(header).not.toContain("completed");
+            expect(header).toContain("name");
+        });
+
+        it("should throw if checklist not found", async () => {
+            await expect(manager.exportChecklistAsCsv("nonexistent")).rejects.toThrow(
+                "Checklist not found"
+            );
+        });
+    });
+
+    describe("exportAllAsCsv", () => {
+        it("should return empty string when no checklists exist", async () => {
+            const csv = await manager.exportAllAsCsv();
+            expect(csv).toBe("");
+        });
+
+        it("should include all checklists with a checklist column", async () => {
+            const c1 = await manager.createChecklist("Tasks", []);
+            const c2 = await manager.createChecklist("Shopping", []);
+            await manager.addItem(c1.id, "Task 1", {}, "");
+            await manager.addItem(c2.id, "Apples", {}, "");
+
+            const csv = await manager.exportAllAsCsv();
+            const lines = csv.trim().split("\n");
+
+            expect(lines[0]).toContain("checklist");
+            expect(lines[0]).toContain("name");
+            expect(csv).toContain("Tasks");
+            expect(csv).toContain("Task 1");
+            expect(csv).toContain("Shopping");
+            expect(csv).toContain("Apples");
         });
     });
 

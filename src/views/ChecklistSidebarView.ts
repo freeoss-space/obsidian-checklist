@@ -15,7 +15,7 @@ export class ChecklistSidebarView extends ItemView {
     private onSelectChecklist: (id: string) => void;
     private onCreateList: () => void;
     private onDeleteChecklist: (id: string) => void;
-    private onExport: (id: string | null, format: "markdown" | "json") => void;
+    private onExport: (id: string | null, format: "markdown" | "json" | "csv") => void;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -23,7 +23,7 @@ export class ChecklistSidebarView extends ItemView {
         onSelectChecklist: (id: string) => void,
         onCreateList: () => void,
         onDeleteChecklist: (id: string) => void,
-        onExport: (id: string | null, format: "markdown" | "json") => void
+        onExport: (id: string | null, format: "markdown" | "json" | "csv") => void
     ) {
         super(leaf);
         this.manager = manager;
@@ -59,6 +59,11 @@ export class ChecklistSidebarView extends ItemView {
                 item.setTitle("Export all as JSON")
                     .setIcon("braces")
                     .onClick(() => this.onExport(null, "json"));
+            });
+            menu.addItem((item) => {
+                item.setTitle("Export all as CSV")
+                    .setIcon("table")
+                    .onClick(() => this.onExport(null, "csv"));
             });
             menu.showAtMouseEvent(e as MouseEvent);
         });
@@ -109,16 +114,23 @@ export class ChecklistSidebarView extends ItemView {
         });
 
         const iconEl = self.createSpan({ cls: "tree-item-icon nav-file-title-icon" });
-        setIcon(iconEl, ICON_CHECKLIST);
+        // Different icon for list vs checklist kind (item 30)
+        setIcon(iconEl, checklist.kind === "list" ? "list" : ICON_CHECKLIST);
 
         self.createSpan({
             text: checklist.name,
             cls: "tree-item-inner nav-file-title-content",
         });
 
+        // Completion fraction badge: "done/total" for checklists, just count for lists (item 21)
         const countEl = self.createSpan({ cls: "tree-item-flair" });
         this.manager.getItems(checklist.id).then((items) => {
-            countEl.setText(String(items.length));
+            if (checklist.kind === "checklist") {
+                const done = items.filter((i) => i.completed).length;
+                countEl.setText(`${done}/${items.length}`);
+            } else {
+                countEl.setText(String(items.length));
+            }
         });
 
         self.addEventListener("click", () => {
@@ -137,6 +149,26 @@ export class ChecklistSidebarView extends ItemView {
                 menuItem.setTitle("Export as JSON")
                     .setIcon("braces")
                     .onClick(() => this.onExport(checklist.id, "json"));
+            });
+            menu.addItem((menuItem) => {
+                menuItem.setTitle("Export as CSV")
+                    .setIcon("table")
+                    .onClick(() => this.onExport(checklist.id, "csv"));
+            });
+            // Reveal folder in file explorer (item 28)
+            menu.addItem((menuItem) => {
+                menuItem.setTitle("Reveal in file explorer")
+                    .setIcon("folder-open")
+                    .onClick(() => {
+                        const explorer = (this.app as any).internalPlugins
+                            ?.getPluginById("file-explorer")?.instance;
+                        if (explorer?.revealInFolder) {
+                            const folder = this.app.vault.getAbstractFileByPath(
+                                checklist.folderPath
+                            );
+                            if (folder) explorer.revealInFolder(folder);
+                        }
+                    });
             });
             menu.addItem((menuItem) => {
                 menuItem.setTitle("Delete checklist")

@@ -212,7 +212,52 @@ export class ChecklistManager {
     }
 
     /**
+     * Sets the `completed` frontmatter field of an item to the given value.
+     * Used by the checkbox toggle in the checklist view.
+     */
+    async setItemCompletion(filePath: string, completed: boolean): Promise<void> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (!(file instanceof TFile)) return;
+
+        const content = await this.app.vault.read(file);
+        const trimmed = content.trim();
+
+        if (trimmed.startsWith("---")) {
+            const lines = trimmed.split("\n");
+            let endIndex = -1;
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === "---") {
+                    endIndex = i;
+                    break;
+                }
+            }
+
+            if (endIndex !== -1) {
+                let found = false;
+                for (let i = 1; i < endIndex; i++) {
+                    if (/^completed\s*:/.test(lines[i])) {
+                        lines[i] = `completed: ${completed}`;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    // Insert before closing ---
+                    lines.splice(endIndex, 0, `completed: ${completed}`);
+                }
+                await this.app.vault.modify(file, lines.join("\n"));
+                return;
+            }
+        }
+
+        // No frontmatter — prepend it
+        const fm = `---\ncompleted: ${completed}\n---\n`;
+        await this.app.vault.modify(file, fm + content);
+    }
+
+    /**
      * Marks an item as complete by deleting its file.
+     * @deprecated Use setItemCompletion() to toggle completion in frontmatter.
      */
     async completeItem(filePath: string): Promise<void> {
         const file = this.app.vault.getAbstractFileByPath(filePath);
@@ -340,6 +385,88 @@ export class ChecklistManager {
         }
 
         return sections.join("\n");
+    }
+
+    /**
+     * Exports a single checklist as a CSV string.
+     * Columns: name, completed (for checklists), then all defined property names, description.
+     */
+    async exportChecklistAsCsv(checklistId: string): Promise<string> {
+        const checklist = this.findChecklist(checklistId);
+        const items = await this.getItems(checklistId);
+        const isList = checklist.kind === "list";
+
+        const headers = ["name"];
+        if (!isList) headers.push("completed");
+        for (const prop of checklist.properties) {
+            headers.push(prop.name);
+        }
+        headers.push("description");
+
+        const escapeCsv = (v: string) => {
+            if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+                return `"${v.replace(/"/g, '""')}"`;
+            }
+            return v;
+        };
+
+        const rows: string[] = [headers.map(escapeCsv).join(",")];
+        for (const item of items) {
+            const row: string[] = [escapeCsv(item.name)];
+            if (!isList) row.push(escapeCsv(String(item.completed)));
+            for (const prop of checklist.properties) {
+                row.push(escapeCsv(String(item.properties[prop.name] ?? "")));
+            }
+            row.push(escapeCsv(item.description));
+            rows.push(row.join(","));
+        }
+
+        return rows.join("\n") + "\n";
+    }
+
+    /**
+     * Exports all checklists as a combined CSV string.
+     * Adds a "checklist" column as the first column to distinguish items.
+     */
+    async exportAllAsCsv(): Promise<string> {
+        if (this.settings.checklists.length === 0) return "";
+
+        // Collect all unique property names across checklists
+        const allProps = new Set<string>();
+        for (const checklist of this.settings.checklists) {
+            for (const prop of checklist.properties) {
+                allProps.add(prop.name);
+            }
+        }
+        const propNames = Array.from(allProps);
+
+        const headers = ["checklist", "name", "completed", ...propNames, "description"];
+        const escapeCsv = (v: string) => {
+            if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+                return `"${v.replace(/"/g, '""')}"`;
+            }
+            return v;
+        };
+
+        const rows: string[] = [headers.map(escapeCsv).join(",")];
+        for (const checklist of this.settings.checklists) {
+            const items = await this.getItems(checklist.id);
+            const isList = checklist.kind === "list";
+            for (const item of items) {
+                const row: string[] = [
+                    escapeCsv(checklist.name),
+                    escapeCsv(item.name),
+                    escapeCsv(isList ? "" : String(item.completed)),
+                ];
+                for (const propName of propNames) {
+                    row.push(escapeCsv(String(item.properties[propName] ?? "")));
+                }
+                row.push(escapeCsv(item.description));
+                rows.push(row.join(","));
+            }
+        }
+
+        return rows.join("\n") + "\n";
     }
 
     /**

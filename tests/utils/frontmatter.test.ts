@@ -95,5 +95,47 @@ Line 3`;
             const result = parseFrontmatter(content);
             expect(result.body).toBe("Line 1\nLine 2\nLine 3");
         });
+
+        it("should skip YAML comment lines", () => {
+            const content = `---
+# This is a comment
+Name: Test
+# Another comment
+completed: false
+---`;
+            const result = parseFrontmatter(content);
+            expect(result.properties["Name"]).toBe("Test");
+            expect(result.properties["completed"]).toBe("false");
+            expect(result.properties["# This is a comment"]).toBeUndefined();
+        });
+
+        it("should accumulate YAML list items as comma-joined string", () => {
+            const content = `---
+Tags:
+  - alpha
+  - beta
+  - gamma
+Name: Test
+---`;
+            const result = parseFrontmatter(content);
+            expect(result.properties["Tags"]).toBe("alpha, beta, gamma");
+            expect(result.properties["Name"]).toBe("Test");
+        });
+
+        it("should unescape inner escaped double quotes", () => {
+            const content = `---
+Note: "say \\"hello\\""
+---`;
+            const result = parseFrontmatter(content);
+            expect(result.properties["Note"]).toBe('say "hello"');
+        });
+
+        it("should unescape inner single-quote escape sequences", () => {
+            const content = `---
+Note: 'it''s fine'
+---`;
+            const result = parseFrontmatter(content);
+            expect(result.properties["Note"]).toBe("it's fine");
+        });
     });
 });

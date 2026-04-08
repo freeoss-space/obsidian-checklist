@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Menu } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Menu, TFile } from "obsidian";
 import { VIEW_TYPE_CHECKLIST, ICON_CHECKLIST } from "../constants";
 import { ChecklistManager } from "../services/ChecklistManager";
 import { ChecklistItem, ChecklistDefinition } from "../models/types";
@@ -17,7 +17,7 @@ export class ChecklistView extends ItemView {
     private onAddItems: () => void;
     private onDeleteItem: (filePath: string) => void;
     private onRefreshSidebar: () => void;
-    private onExport: (format: "markdown" | "json") => void;
+    private onExport: (format: "markdown" | "json" | "csv") => void;
     /** Per-checklist view state (sort + filter), kept in-memory only. */
     private viewStateByChecklist: Map<string, ViewState> = new Map();
 
@@ -28,7 +28,7 @@ export class ChecklistView extends ItemView {
         onAddItems: () => void,
         onDeleteItem: (filePath: string) => void,
         onRefreshSidebar: () => void,
-        onExport: (format: "markdown" | "json") => void
+        onExport: (format: "markdown" | "json" | "csv") => void
     ) {
         super(leaf);
         this.manager = manager;
@@ -111,10 +111,29 @@ export class ChecklistView extends ItemView {
                     .setIcon("braces")
                     .onClick(() => this.onExport("json"));
             });
+            menu.addItem((item) => {
+                item.setTitle("Export as CSV")
+                    .setIcon("table")
+                    .onClick(() => this.onExport("csv"));
+            });
             menu.showAtMouseEvent(e);
         });
 
         const allItems = await this.manager.getItems(checklist.id);
+
+        // Progress bar (checklists only)
+        if (checklist.kind === "checklist" && allItems.length > 0) {
+            const completedCount = allItems.filter((i) => i.completed).length;
+            const pct = Math.round((completedCount / allItems.length) * 100);
+            const progressContainer = this.contentContainer.createDiv({ cls: "checklist-progress" });
+            progressContainer.createSpan({
+                text: `${completedCount} / ${allItems.length} done`,
+                cls: "checklist-progress-label",
+            });
+            const bar = progressContainer.createDiv({ cls: "checklist-progress-bar" });
+            const fill = bar.createDiv({ cls: "checklist-progress-fill" });
+            fill.style.width = `${pct}%`;
+        }
         const state = this.getViewState(checklist.id);
 
         // Toolbar (search + status filter)
@@ -183,20 +202,29 @@ export class ChecklistView extends ItemView {
             const checkbox = checkCell.createEl("input", { type: "checkbox" });
             checkbox.checked = item.completed;
             checkbox.addEventListener("change", async () => {
-                if (checkbox.checked) {
+                const nowCompleted = checkbox.checked;
+                if (nowCompleted) {
                     row.addClass("checklist-item-completing");
-                    setTimeout(async () => {
-                        await this.manager.completeItem(item.filePath);
-                        await this.renderView();
-                        this.onRefreshSidebar();
-                    }, 300);
                 }
+                await this.manager.setItemCompletion(item.filePath, nowCompleted);
+                await this.renderView();
+                this.onRefreshSidebar();
             });
+        }
+
+        if (item.completed) {
+            row.addClass("is-completed");
         }
 
         // Name
         const nameCell = row.createDiv({ cls: "checklist-col checklist-col-name" });
-        nameCell.createSpan({ text: item.name, cls: "checklist-item-name" });
+        const nameSpan = nameCell.createSpan({ text: item.name, cls: "checklist-item-name" });
+        nameSpan.addEventListener("click", () => {
+            const file = this.app.vault.getAbstractFileByPath(item.filePath);
+            if (file instanceof TFile) {
+                this.app.workspace.getLeaf(false).openFile(file);
+            }
+        });
         if (item.description) {
             nameCell.createEl("small", {
                 text: item.description,

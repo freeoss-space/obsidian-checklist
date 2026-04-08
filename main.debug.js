@@ -198,9 +198,24 @@ var ChecklistView = class extends import_obsidian.ItemView {
       menu.addItem((item) => {
         item.setTitle("Export as JSON").setIcon("braces").onClick(() => this.onExport("json"));
       });
+      menu.addItem((item) => {
+        item.setTitle("Export as CSV").setIcon("table").onClick(() => this.onExport("csv"));
+      });
       menu.showAtMouseEvent(e);
     });
     const allItems = await this.manager.getItems(checklist.id);
+    if (checklist.kind === "checklist" && allItems.length > 0) {
+      const completedCount = allItems.filter((i) => i.completed).length;
+      const pct = Math.round(completedCount / allItems.length * 100);
+      const progressContainer = this.contentContainer.createDiv({ cls: "checklist-progress" });
+      progressContainer.createSpan({
+        text: `${completedCount} / ${allItems.length} done`,
+        cls: "checklist-progress-label"
+      });
+      const bar = progressContainer.createDiv({ cls: "checklist-progress-bar" });
+      const fill = bar.createDiv({ cls: "checklist-progress-fill" });
+      fill.style.width = `${pct}%`;
+    }
     const state = this.getViewState(checklist.id);
     this.renderToolbar(checklist, state);
     const items = applyView(allItems, state);
@@ -254,18 +269,26 @@ var ChecklistView = class extends import_obsidian.ItemView {
       const checkbox = checkCell.createEl("input", { type: "checkbox" });
       checkbox.checked = item.completed;
       checkbox.addEventListener("change", async () => {
-        if (checkbox.checked) {
+        const nowCompleted = checkbox.checked;
+        if (nowCompleted) {
           row.addClass("checklist-item-completing");
-          setTimeout(async () => {
-            await this.manager.completeItem(item.filePath);
-            await this.renderView();
-            this.onRefreshSidebar();
-          }, 300);
         }
+        await this.manager.setItemCompletion(item.filePath, nowCompleted);
+        await this.renderView();
+        this.onRefreshSidebar();
       });
     }
+    if (item.completed) {
+      row.addClass("is-completed");
+    }
     const nameCell = row.createDiv({ cls: "checklist-col checklist-col-name" });
-    nameCell.createSpan({ text: item.name, cls: "checklist-item-name" });
+    const nameSpan = nameCell.createSpan({ text: item.name, cls: "checklist-item-name" });
+    nameSpan.addEventListener("click", () => {
+      const file = this.app.vault.getAbstractFileByPath(item.filePath);
+      if (file instanceof import_obsidian.TFile) {
+        this.app.workspace.getLeaf(false).openFile(file);
+      }
+    });
     if (item.description) {
       nameCell.createEl("small", {
         text: item.description,
@@ -463,6 +486,9 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
       menu.addItem((item) => {
         item.setTitle("Export all as JSON").setIcon("braces").onClick(() => this.onExport(null, "json"));
       });
+      menu.addItem((item) => {
+        item.setTitle("Export all as CSV").setIcon("table").onClick(() => this.onExport(null, "csv"));
+      });
       menu.showAtMouseEvent(e);
     });
     this.addAction("plus", "New checklist", () => {
@@ -497,14 +523,19 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
       attr: { "data-path": checklist.id }
     });
     const iconEl = self.createSpan({ cls: "tree-item-icon nav-file-title-icon" });
-    (0, import_obsidian2.setIcon)(iconEl, ICON_CHECKLIST);
+    (0, import_obsidian2.setIcon)(iconEl, checklist.kind === "list" ? "list" : ICON_CHECKLIST);
     self.createSpan({
       text: checklist.name,
       cls: "tree-item-inner nav-file-title-content"
     });
     const countEl = self.createSpan({ cls: "tree-item-flair" });
     this.manager.getItems(checklist.id).then((items) => {
-      countEl.setText(String(items.length));
+      if (checklist.kind === "checklist") {
+        const done = items.filter((i) => i.completed).length;
+        countEl.setText(`${done}/${items.length}`);
+      } else {
+        countEl.setText(String(items.length));
+      }
     });
     self.addEventListener("click", () => {
       this.onSelectChecklist(checklist.id);
@@ -517,6 +548,22 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
       });
       menu.addItem((menuItem) => {
         menuItem.setTitle("Export as JSON").setIcon("braces").onClick(() => this.onExport(checklist.id, "json"));
+      });
+      menu.addItem((menuItem) => {
+        menuItem.setTitle("Export as CSV").setIcon("table").onClick(() => this.onExport(checklist.id, "csv"));
+      });
+      menu.addItem((menuItem) => {
+        menuItem.setTitle("Reveal in file explorer").setIcon("folder-open").onClick(() => {
+          var _a, _b;
+          const explorer = (_b = (_a = this.app.internalPlugins) == null ? void 0 : _a.getPluginById("file-explorer")) == null ? void 0 : _b.instance;
+          if (explorer == null ? void 0 : explorer.revealInFolder) {
+            const folder = this.app.vault.getAbstractFileByPath(
+              checklist.folderPath
+            );
+            if (folder)
+              explorer.revealInFolder(folder);
+          }
+        });
       });
       menu.addItem((menuItem) => {
         menuItem.setTitle("Delete checklist").setIcon("trash").onClick(() => this.onDeleteChecklist(checklist.id));
@@ -571,18 +618,40 @@ function parseFrontmatter(content) {
     return { properties: {}, body: trimmed };
   }
   const properties = {};
+  let lastKey = null;
+  const listAccumulator = [];
+  const flushList = () => {
+    if (lastKey !== null && listAccumulator.length > 0) {
+      properties[lastKey] = listAccumulator.join(", ");
+      listAccumulator.length = 0;
+    }
+  };
   for (let i = 1; i < endIndex; i++) {
     const line = lines[i];
+    if (line.trimStart().startsWith("#"))
+      continue;
+    const listMatch = line.match(/^[ \t]+-[ \t]+(.*)/);
+    if (listMatch) {
+      listAccumulator.push(listMatch[1].trim());
+      continue;
+    }
+    flushList();
     const colonIndex = line.indexOf(":");
     if (colonIndex === -1)
       continue;
     const key = line.substring(0, colonIndex).trim();
+    if (!key)
+      continue;
     let value = line.substring(colonIndex + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-      value = value.slice(1, -1);
+    if (value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/\\"/g, '"');
+    } else if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1).replace(/''/g, "'");
     }
+    lastKey = key;
     properties[key] = value;
   }
+  flushList();
   const bodyLines = lines.slice(endIndex + 1);
   const body = bodyLines.join("\n").trim();
   return { properties, body };
@@ -736,7 +805,49 @@ ${item.description}` : `${frontmatter}
     return merged;
   }
   /**
+   * Sets the `completed` frontmatter field of an item to the given value.
+   * Used by the checkbox toggle in the checklist view.
+   */
+  async setItemCompletion(filePath, completed) {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof import_obsidian3.TFile))
+      return;
+    const content = await this.app.vault.read(file);
+    const trimmed = content.trim();
+    if (trimmed.startsWith("---")) {
+      const lines = trimmed.split("\n");
+      let endIndex = -1;
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === "---") {
+          endIndex = i;
+          break;
+        }
+      }
+      if (endIndex !== -1) {
+        let found = false;
+        for (let i = 1; i < endIndex; i++) {
+          if (/^completed\s*:/.test(lines[i])) {
+            lines[i] = `completed: ${completed}`;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          lines.splice(endIndex, 0, `completed: ${completed}`);
+        }
+        await this.app.vault.modify(file, lines.join("\n"));
+        return;
+      }
+    }
+    const fm = `---
+completed: ${completed}
+---
+`;
+    await this.app.vault.modify(file, fm + content);
+  }
+  /**
    * Marks an item as complete by deleting its file.
+   * @deprecated Use setItemCompletion() to toggle completion in frontmatter.
    */
   async completeItem(filePath) {
     const file = this.app.vault.getAbstractFileByPath(filePath);
@@ -843,6 +954,82 @@ ${item.description}` : `${frontmatter}
       sections.push(await this.exportChecklistAsMarkdown(checklist.id));
     }
     return sections.join("\n");
+  }
+  /**
+   * Exports a single checklist as a CSV string.
+   * Columns: name, completed (for checklists), then all defined property names, description.
+   */
+  async exportChecklistAsCsv(checklistId) {
+    var _a;
+    const checklist = this.findChecklist(checklistId);
+    const items = await this.getItems(checklistId);
+    const isList = checklist.kind === "list";
+    const headers = ["name"];
+    if (!isList)
+      headers.push("completed");
+    for (const prop of checklist.properties) {
+      headers.push(prop.name);
+    }
+    headers.push("description");
+    const escapeCsv = (v) => {
+      if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+        return `"${v.replace(/"/g, '""')}"`;
+      }
+      return v;
+    };
+    const rows = [headers.map(escapeCsv).join(",")];
+    for (const item of items) {
+      const row = [escapeCsv(item.name)];
+      if (!isList)
+        row.push(escapeCsv(String(item.completed)));
+      for (const prop of checklist.properties) {
+        row.push(escapeCsv(String((_a = item.properties[prop.name]) != null ? _a : "")));
+      }
+      row.push(escapeCsv(item.description));
+      rows.push(row.join(","));
+    }
+    return rows.join("\n") + "\n";
+  }
+  /**
+   * Exports all checklists as a combined CSV string.
+   * Adds a "checklist" column as the first column to distinguish items.
+   */
+  async exportAllAsCsv() {
+    var _a;
+    if (this.settings.checklists.length === 0)
+      return "";
+    const allProps = /* @__PURE__ */ new Set();
+    for (const checklist of this.settings.checklists) {
+      for (const prop of checklist.properties) {
+        allProps.add(prop.name);
+      }
+    }
+    const propNames = Array.from(allProps);
+    const headers = ["checklist", "name", "completed", ...propNames, "description"];
+    const escapeCsv = (v) => {
+      if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+        return `"${v.replace(/"/g, '""')}"`;
+      }
+      return v;
+    };
+    const rows = [headers.map(escapeCsv).join(",")];
+    for (const checklist of this.settings.checklists) {
+      const items = await this.getItems(checklist.id);
+      const isList = checklist.kind === "list";
+      for (const item of items) {
+        const row = [
+          escapeCsv(checklist.name),
+          escapeCsv(item.name),
+          escapeCsv(isList ? "" : String(item.completed))
+        ];
+        for (const propName of propNames) {
+          row.push(escapeCsv(String((_a = item.properties[propName]) != null ? _a : "")));
+        }
+        row.push(escapeCsv(item.description));
+        rows.push(row.join(","));
+      }
+    }
+    return rows.join("\n") + "\n";
   }
   /**
    * Exports all checklists as a JSON string.
@@ -1053,14 +1240,15 @@ var AddItemModal = class extends import_obsidian5.Modal {
   renderPropertyField(container, prop) {
     const setting = new import_obsidian5.Setting(container).setName(prop.name);
     switch (prop.type) {
-      case "text":
       case "date":
-        setting.addText(
-          (text) => text.setPlaceholder(prop.type === "date" ? "YYYY-MM-DD" : `Enter ${prop.name}`).setValue(String(this.propertyValues[prop.name] || "")).onChange((value) => {
+        setting.addText((text) => {
+          text.inputEl.type = "date";
+          text.setValue(String(this.propertyValues[prop.name] || "")).onChange((value) => {
             this.propertyValues[prop.name] = value;
-          })
-        );
+          });
+        });
         break;
+      case "text":
       case "number":
         setting.addText(
           (text) => text.setPlaceholder("0").setValue(String(this.propertyValues[prop.name] || "")).onChange((value) => {
@@ -1429,6 +1617,17 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
       }
     });
     this.addCommand({
+      id: "export-checklist-csv",
+      name: "Export active checklist as CSV",
+      callback: () => {
+        const active = this.manager.getActiveChecklist();
+        if (active)
+          this.handleExport(active.id, "csv");
+        else
+          new import_obsidian9.Notice("No active checklist.");
+      }
+    });
+    this.addCommand({
       id: "export-all-checklists-markdown",
       name: "Export all checklists as Markdown",
       callback: () => this.handleExport(null, "markdown")
@@ -1438,6 +1637,47 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
       name: "Export all checklists as JSON",
       callback: () => this.handleExport(null, "json")
     });
+    this.addCommand({
+      id: "export-all-checklists-csv",
+      name: "Export all checklists as CSV",
+      callback: () => this.handleExport(null, "csv")
+    });
+    const isInChecklistFolder = (path) => {
+      const checklists = this.manager.getSettings().checklists;
+      return checklists.some((c) => path.startsWith(c.folderPath + "/"));
+    };
+    this.registerEvent(
+      this.app.vault.on("create", (file) => {
+        if (isInChecklistFolder(file.path)) {
+          this.refreshMainView();
+          this.refreshSidebar();
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (isInChecklistFolder(file.path)) {
+          this.refreshMainView();
+          this.refreshSidebar();
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (isInChecklistFolder(file.path)) {
+          this.refreshMainView();
+          this.refreshSidebar();
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (isInChecklistFolder(file.path) || isInChecklistFolder(oldPath)) {
+          this.refreshMainView();
+          this.refreshSidebar();
+        }
+      })
+    );
   }
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
@@ -1507,6 +1747,12 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
     const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
     if (!checklist)
       return;
+    const items = await this.manager.getItems(id);
+    const confirmed = confirm(
+      `Delete "${checklist.name}" and its ${items.length} item(s)? This cannot be undone.`
+    );
+    if (!confirmed)
+      return;
     await this.manager.deleteChecklist(id);
     new import_obsidian9.Notice(`Checklist "${checklist.name}" deleted.`);
     this.refreshSidebar();
@@ -1527,9 +1773,16 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
    * Exports a checklist (or all checklists) and saves to vault.
    */
   async handleExport(id, format) {
-    const ext = format === "markdown" ? "md" : "json";
+    const ext = format === "markdown" ? "md" : format === "json" ? "json" : "csv";
     if (id === null) {
-      const content = format === "markdown" ? await this.manager.exportAllAsMarkdown() : await this.manager.exportAllAsJson();
+      let content;
+      if (format === "markdown") {
+        content = await this.manager.exportAllAsMarkdown();
+      } else if (format === "json") {
+        content = await this.manager.exportAllAsJson();
+      } else {
+        content = await this.manager.exportAllAsCsv();
+      }
       if (!content || content === "") {
         new import_obsidian9.Notice("No checklists to export.");
         return;
@@ -1541,7 +1794,14 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
       const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
       if (!checklist)
         return;
-      const content = format === "markdown" ? await this.manager.exportChecklistAsMarkdown(id) : await this.manager.exportChecklistAsJson(id);
+      let content;
+      if (format === "markdown") {
+        content = await this.manager.exportChecklistAsMarkdown(id);
+      } else if (format === "json") {
+        content = await this.manager.exportChecklistAsJson(id);
+      } else {
+        content = await this.manager.exportChecklistAsCsv(id);
+      }
       const safeName = checklist.name.replace(/[\\/:*?"<>|]/g, "-");
       const filePath = `${safeName}-export.${ext}`;
       await this.saveExportFile(filePath, content);

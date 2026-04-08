@@ -116,6 +116,16 @@ export default class ChecklistPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "export-checklist-csv",
+            name: "Export active checklist as CSV",
+            callback: () => {
+                const active = this.manager.getActiveChecklist();
+                if (active) this.handleExport(active.id, "csv");
+                else new Notice("No active checklist.");
+            },
+        });
+
+        this.addCommand({
             id: "export-all-checklists-markdown",
             name: "Export all checklists as Markdown",
             callback: () => this.handleExport(null, "markdown"),
@@ -126,6 +136,54 @@ export default class ChecklistPlugin extends Plugin {
             name: "Export all checklists as JSON",
             callback: () => this.handleExport(null, "json"),
         });
+
+        this.addCommand({
+            id: "export-all-checklists-csv",
+            name: "Export all checklists as CSV",
+            callback: () => this.handleExport(null, "csv"),
+        });
+
+        // File watcher — refresh views when vault files in managed checklist folders change
+        const isInChecklistFolder = (path: string): boolean => {
+            const checklists = this.manager.getSettings().checklists;
+            return checklists.some((c) => path.startsWith(c.folderPath + "/"));
+        };
+
+        this.registerEvent(
+            this.app.vault.on("create", (file) => {
+                if (isInChecklistFolder(file.path)) {
+                    this.refreshMainView();
+                    this.refreshSidebar();
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on("modify", (file) => {
+                if (isInChecklistFolder(file.path)) {
+                    this.refreshMainView();
+                    this.refreshSidebar();
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => {
+                if (isInChecklistFolder(file.path)) {
+                    this.refreshMainView();
+                    this.refreshSidebar();
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on("rename", (file, oldPath) => {
+                if (isInChecklistFolder(file.path) || isInChecklistFolder(oldPath)) {
+                    this.refreshMainView();
+                    this.refreshSidebar();
+                }
+            })
+        );
     }
 
     onunload(): void {
@@ -209,6 +267,12 @@ export default class ChecklistPlugin extends Plugin {
         const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
         if (!checklist) return;
 
+        const items = await this.manager.getItems(id);
+        const confirmed = confirm(
+            `Delete "${checklist.name}" and its ${items.length} item(s)? This cannot be undone.`
+        );
+        if (!confirmed) return;
+
         await this.manager.deleteChecklist(id);
         new Notice(`Checklist "${checklist.name}" deleted.`);
         this.refreshSidebar();
@@ -229,14 +293,19 @@ export default class ChecklistPlugin extends Plugin {
     /**
      * Exports a checklist (or all checklists) and saves to vault.
      */
-    async handleExport(id: string | null, format: "markdown" | "json"): Promise<void> {
-        const ext = format === "markdown" ? "md" : "json";
+    async handleExport(id: string | null, format: "markdown" | "json" | "csv"): Promise<void> {
+        const ext = format === "markdown" ? "md" : format === "json" ? "json" : "csv";
 
         if (id === null) {
             // Export all
-            const content = format === "markdown"
-                ? await this.manager.exportAllAsMarkdown()
-                : await this.manager.exportAllAsJson();
+            let content: string;
+            if (format === "markdown") {
+                content = await this.manager.exportAllAsMarkdown();
+            } else if (format === "json") {
+                content = await this.manager.exportAllAsJson();
+            } else {
+                content = await this.manager.exportAllAsCsv();
+            }
 
             if (!content || content === "") {
                 new Notice("No checklists to export.");
@@ -251,9 +320,14 @@ export default class ChecklistPlugin extends Plugin {
             const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
             if (!checklist) return;
 
-            const content = format === "markdown"
-                ? await this.manager.exportChecklistAsMarkdown(id)
-                : await this.manager.exportChecklistAsJson(id);
+            let content: string;
+            if (format === "markdown") {
+                content = await this.manager.exportChecklistAsMarkdown(id);
+            } else if (format === "json") {
+                content = await this.manager.exportChecklistAsJson(id);
+            } else {
+                content = await this.manager.exportChecklistAsCsv(id);
+            }
 
             const safeName = checklist.name.replace(/[\\/:*?"<>|]/g, "-");
             const filePath = `${safeName}-export.${ext}`;
