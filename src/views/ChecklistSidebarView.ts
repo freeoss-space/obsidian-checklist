@@ -47,7 +47,7 @@ export class ChecklistSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
-        // Action buttons in native view-header
+        // Action buttons in native view-header (shown on hover)
         this.addAction("download", "Export all checklists", (e) => {
             const menu = new Menu();
             menu.addItem((item) => {
@@ -70,6 +70,16 @@ export class ChecklistSidebarView extends ItemView {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
         container.addClass("nav-files-container", "checklist-sidebar-container");
+
+        // Always-visible nav-header button (mirrors Obsidian's File Explorer pattern)
+        const navHeader = container.createDiv({ cls: "nav-header" });
+        const navButtons = navHeader.createDiv({ cls: "nav-buttons-container" });
+        const newBtn = navButtons.createEl("div", {
+            cls: "nav-action-button clickable-icon",
+            attr: { "aria-label": "New checklist" },
+        });
+        setIcon(newBtn, "plus");
+        newBtn.addEventListener("click", () => this.onCreateList());
 
         this.listContainer = container.createDiv({ cls: "nav-folder-children" });
 
