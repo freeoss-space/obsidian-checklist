@@ -71,6 +71,10 @@ export class ItemView {
     async onOpen(): Promise<void> {}
 
     async onClose(): Promise<void> {}
+
+    addAction(_icon: string, _title: string, _callback: (evt: MouseEvent) => void): HTMLElement {
+        return document.createElement("button");
+    }
 }
 
 export class Modal {
