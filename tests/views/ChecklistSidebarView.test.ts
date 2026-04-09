@@ -139,4 +139,32 @@ describe("ChecklistSidebarView header buttons", () => {
             expect.any(Function)
         );
     });
+
+    it("renders an always-visible 'New checklist' button in the content area nav-header", async () => {
+        const view = makeView();
+        await view.onOpen();
+
+        const content = view.containerEl.children[1] as HTMLElement;
+        const navHeader = content.querySelector(".nav-header");
+        expect(navHeader).not.toBeNull();
+
+        const navBtn = content.querySelector(".nav-buttons-container .nav-action-button");
+        expect(navBtn).not.toBeNull();
+        expect((navBtn as HTMLElement).getAttribute("aria-label")).toBe("New checklist");
+    });
+
+    it("calls onCreateList when the content-area 'New checklist' button is clicked", async () => {
+        const onCreateList = jest.fn();
+        const view = makeView(onCreateList);
+        await view.onOpen();
+
+        const content = view.containerEl.children[1] as HTMLElement;
+        const navBtn = content.querySelector(
+            ".nav-buttons-container .nav-action-button"
+        ) as HTMLElement | null;
+        expect(navBtn).not.toBeNull();
+        navBtn!.click();
+
+        expect(onCreateList).toHaveBeenCalledTimes(1);
+    });
 });
