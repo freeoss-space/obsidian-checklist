@@ -18,6 +18,10 @@ export class ChecklistView extends ItemView {
     private onDeleteItem: (filePath: string) => void;
     private onRefreshSidebar: () => void;
     private onExport: (format: "markdown" | "json") => void;
+    private inlineDraftByChecklist: Map<
+        string,
+        { name: string; description: string; properties: Record<string, string> }
+    > = new Map();
     /** Per-checklist view state (sort + filter), kept in-memory only. */
     private viewStateByChecklist: Map<string, ViewState> = new Map();
 
@@ -90,9 +94,18 @@ export class ChecklistView extends ItemView {
     }
 
     private async renderItems(checklist: ChecklistDefinition): Promise<void> {
+        if (typeof (this as any).setTitle === "function") {
+            (this as any).setTitle(checklist.name);
+        }
         // Title bar
         const titleBar = this.contentContainer.createDiv({ cls: "checklist-title-bar" });
         titleBar.createEl("h4", { text: checklist.name, cls: "checklist-title" });
+        const addBtn = titleBar.createEl("button", {
+            cls: "checklist-add-btn clickable-icon",
+            attr: { "aria-label": "Add item" },
+        });
+        setIcon(addBtn, "plus");
+        addBtn.addEventListener("click", () => this.onAddItem());
 
         const exportBtn = titleBar.createEl("button", {
             cls: "checklist-export-btn clickable-icon",
@@ -335,21 +348,79 @@ export class ChecklistView extends ItemView {
         const iconEl = inlineRow.createSpan({ cls: "checklist-inline-add-icon" });
         setIcon(iconEl, "plus");
 
+        const draft = this.getInlineDraft(checklist.id);
+        const isFormMode = checklist.inlineAddMode === "form" || checklist.properties.length > 0;
+
         const input = inlineRow.createEl("input", {
             type: "text",
             cls: "checklist-inline-add-input",
             attr: { placeholder: "Add new item..." },
         });
+        input.value = draft.name;
+        input.addEventListener("input", () => {
+            draft.name = input.value;
+        });
+
+        const properties: Record<string, string> = { ...draft.properties };
+        let descriptionValue = draft.description;
+
+        if (isFormMode) {
+            inlineRow.addClass("checklist-inline-add-form");
+            const descInput = inlineRow.createEl("input", {
+                type: "text",
+                cls: "checklist-inline-add-input checklist-inline-add-desc",
+                attr: { placeholder: "Description (optional)" },
+            });
+            descInput.value = draft.description;
+            descInput.addEventListener("input", () => {
+                descriptionValue = descInput.value;
+                draft.description = descriptionValue;
+            });
+
+            for (const prop of checklist.properties) {
+                const propInput = inlineRow.createEl("input", {
+                    type: "text",
+                    cls: "checklist-inline-add-input checklist-inline-add-prop",
+                    attr: { placeholder: prop.name },
+                });
+                const prev = draft.properties[prop.name];
+                propInput.value = prev ?? (prop.defaultValue ? String(prop.defaultValue) : "");
+                properties[prop.name] = propInput.value;
+                propInput.addEventListener("input", () => {
+                    properties[prop.name] = propInput.value;
+                    draft.properties[prop.name] = propInput.value;
+                });
+            }
+        }
+
+        const addInline = async () => {
+            if (!input.value.trim()) return;
+            await this.manager.addItem(checklist.id, input.value.trim(), properties, descriptionValue.trim());
+            this.inlineDraftByChecklist.set(checklist.id, { name: "", description: "", properties: {} });
+            await this.renderView();
+            this.onRefreshSidebar();
+            const next = this.contentContainer.querySelector(
+                ".checklist-inline-add-input"
+            ) as HTMLInputElement | null;
+            next?.focus();
+        };
 
         input.addEventListener("keydown", async (e) => {
-            if (e.key === "Enter" && input.value.trim()) {
-                const name = input.value.trim();
-                await this.manager.addItem(checklist.id, name, {}, "");
-                input.value = "";
-                await this.renderView();
-                this.onRefreshSidebar();
+            if (e.key === "Enter") {
+                await addInline();
             }
         });
+    }
+
+    private getInlineDraft(
+        checklistId: string
+    ): { name: string; description: string; properties: Record<string, string> } {
+        let draft = this.inlineDraftByChecklist.get(checklistId);
+        if (!draft) {
+            draft = { name: "", description: "", properties: {} };
+            this.inlineDraftByChecklist.set(checklistId, draft);
+        }
+        return draft;
     }
 
     private renderFAB(): void {

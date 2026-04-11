@@ -54,6 +54,7 @@ export class ChecklistManager {
                 name: folderPath.split("/").pop() || folderPath,
                 folderPath,
                 properties: [],
+                inlineAddMode: "simple",
                 createdAt: new Date().toISOString(),
                 kind: "checklist",
             };
@@ -91,6 +92,7 @@ export class ChecklistManager {
             name,
             folderPath,
             properties,
+            inlineAddMode: properties.length > 0 ? "form" : "simple",
             createdAt: new Date().toISOString(),
             kind,
         };
@@ -98,7 +100,13 @@ export class ChecklistManager {
         this.settings.checklists.push(checklist);
         this.settings.activeChecklistId = checklist.id;
 
-        await this.app.vault.createFolder(folderPath);
+        if (!this.app.vault.getAbstractFileByPath(folderPath)) {
+            try {
+                await this.app.vault.createFolder(folderPath);
+            } catch (e) {
+                // Folder may already exist
+            }
+        }
         await this.save();
 
         return checklist;
@@ -251,6 +259,25 @@ export class ChecklistManager {
         }
 
         return items;
+    }
+
+    getItemCounts(): Record<string, number> {
+        const counts: Record<string, number> = {};
+        for (const checklist of this.settings.checklists) {
+            counts[checklist.id] = 0;
+        }
+
+        const files = this.app.vault.getMarkdownFiles();
+        for (const file of files) {
+            for (const checklist of this.settings.checklists) {
+                if (file.path.startsWith(`${checklist.folderPath}/`)) {
+                    counts[checklist.id] = (counts[checklist.id] ?? 0) + 1;
+                    break;
+                }
+            }
+        }
+
+        return counts;
     }
 
     /**

@@ -95,6 +95,7 @@ export class ChecklistSidebarView extends ItemView {
 
         const checklists = this.manager.getSettings().checklists;
         const activeId = this.manager.getSettings().activeChecklistId;
+        const counts = this.manager.getItemCounts();
 
         if (checklists.length === 0) {
             const empty = this.listContainer.createDiv({ cls: "checklist-sidebar-empty" });
@@ -103,14 +104,20 @@ export class ChecklistSidebarView extends ItemView {
         }
 
         for (const checklist of checklists) {
-            this.renderChecklistEntry(this.listContainer, checklist, checklist.id === activeId);
+            this.renderChecklistEntry(
+                this.listContainer,
+                checklist,
+                checklist.id === activeId,
+                counts[checklist.id] ?? 0
+            );
         }
     }
 
     private renderChecklistEntry(
         container: HTMLElement,
         checklist: ChecklistDefinition,
-        isActive: boolean
+        isActive: boolean,
+        itemCount: number
     ): void {
         const item = container.createDiv({ cls: "tree-item nav-file" });
         const self = item.createDiv({
@@ -127,9 +134,7 @@ export class ChecklistSidebarView extends ItemView {
         });
 
         const countEl = self.createSpan({ cls: "tree-item-flair" });
-        this.manager.getItems(checklist.id).then((items) => {
-            countEl.setText(String(items.length));
-        });
+        countEl.setText(String(itemCount));
 
         self.addEventListener("click", () => {
             this.onSelectChecklist(checklist.id);

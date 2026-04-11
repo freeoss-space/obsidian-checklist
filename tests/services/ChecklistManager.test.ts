@@ -55,6 +55,16 @@ describe("ChecklistManager", () => {
             const checklist = await manager.createChecklist("Tasks", []);
             expect(manager.getSettings().activeChecklistId).toBe(checklist.id);
         });
+
+        it("should not fail when checklist folder already exists", async () => {
+            const createFolderSpy = jest.spyOn(app.vault, "createFolder");
+            await app.vault.createFolder("checklists");
+            await app.vault.createFolder("checklists/Tasks");
+
+            await expect(manager.createChecklist("Tasks", [])).resolves.toBeDefined();
+            expect(createFolderSpy).toHaveBeenCalledWith("checklists");
+            expect(createFolderSpy).toHaveBeenCalledWith("checklists/Tasks");
+        });
     });
 
     describe("deleteChecklist", () => {
@@ -220,6 +230,23 @@ describe("ChecklistManager", () => {
         it("should return null when no active checklist", () => {
             const active = manager.getActiveChecklist();
             expect(active).toBeNull();
+        });
+    });
+
+    describe("getItemCounts", () => {
+        it("returns per-checklist file counts without reading file contents", async () => {
+            const readSpy = jest.spyOn(app.vault, "read");
+            const first = await manager.createChecklist("First", []);
+            const second = await manager.createChecklist("Second", []);
+            await manager.addItem(first.id, "A", {}, "");
+            await manager.addItem(first.id, "B", {}, "");
+            await manager.addItem(second.id, "C", {}, "");
+
+            const counts = manager.getItemCounts();
+
+            expect(counts[first.id]).toBe(2);
+            expect(counts[second.id]).toBe(1);
+            expect(readSpy).not.toHaveBeenCalled();
         });
     });
 

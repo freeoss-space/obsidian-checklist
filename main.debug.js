@@ -135,6 +135,7 @@ function applyView(items, state) {
 var ChecklistView = class extends import_obsidian.ItemView {
   constructor(leaf, manager, onAddItem, onAddItems, onDeleteItem, onRefreshSidebar, onExport) {
     super(leaf);
+    this.inlineDraftByChecklist = /* @__PURE__ */ new Map();
     /** Per-checklist view state (sort + filter), kept in-memory only. */
     this.viewStateByChecklist = /* @__PURE__ */ new Map();
     this.manager = manager;
@@ -183,8 +184,17 @@ var ChecklistView = class extends import_obsidian.ItemView {
     });
   }
   async renderItems(checklist) {
+    if (typeof this.setTitle === "function") {
+      this.setTitle(checklist.name);
+    }
     const titleBar = this.contentContainer.createDiv({ cls: "checklist-title-bar" });
     titleBar.createEl("h4", { text: checklist.name, cls: "checklist-title" });
+    const addBtn = titleBar.createEl("button", {
+      cls: "checklist-add-btn clickable-icon",
+      attr: { "aria-label": "Add item" }
+    });
+    (0, import_obsidian.setIcon)(addBtn, "plus");
+    addBtn.addEventListener("click", () => this.onAddItem());
     const exportBtn = titleBar.createEl("button", {
       cls: "checklist-export-btn clickable-icon",
       attr: { "aria-label": "Export checklist" }
@@ -384,20 +394,71 @@ var ChecklistView = class extends import_obsidian.ItemView {
     const inlineRow = container.createDiv({ cls: "checklist-inline-add" });
     const iconEl = inlineRow.createSpan({ cls: "checklist-inline-add-icon" });
     (0, import_obsidian.setIcon)(iconEl, "plus");
+    const draft = this.getInlineDraft(checklist.id);
+    const isFormMode = checklist.inlineAddMode === "form" || checklist.properties.length > 0;
     const input = inlineRow.createEl("input", {
       type: "text",
       cls: "checklist-inline-add-input",
       attr: { placeholder: "Add new item..." }
     });
+    input.value = draft.name;
+    input.addEventListener("input", () => {
+      draft.name = input.value;
+    });
+    const properties = { ...draft.properties };
+    let descriptionValue = draft.description;
+    if (isFormMode) {
+      inlineRow.addClass("checklist-inline-add-form");
+      const descInput = inlineRow.createEl("input", {
+        type: "text",
+        cls: "checklist-inline-add-input checklist-inline-add-desc",
+        attr: { placeholder: "Description (optional)" }
+      });
+      descInput.value = draft.description;
+      descInput.addEventListener("input", () => {
+        descriptionValue = descInput.value;
+        draft.description = descriptionValue;
+      });
+      for (const prop of checklist.properties) {
+        const propInput = inlineRow.createEl("input", {
+          type: "text",
+          cls: "checklist-inline-add-input checklist-inline-add-prop",
+          attr: { placeholder: prop.name }
+        });
+        const prev = draft.properties[prop.name];
+        propInput.value = prev != null ? prev : prop.defaultValue ? String(prop.defaultValue) : "";
+        properties[prop.name] = propInput.value;
+        propInput.addEventListener("input", () => {
+          properties[prop.name] = propInput.value;
+          draft.properties[prop.name] = propInput.value;
+        });
+      }
+    }
+    const addInline = async () => {
+      if (!input.value.trim())
+        return;
+      await this.manager.addItem(checklist.id, input.value.trim(), properties, descriptionValue.trim());
+      this.inlineDraftByChecklist.set(checklist.id, { name: "", description: "", properties: {} });
+      await this.renderView();
+      this.onRefreshSidebar();
+      const next = this.contentContainer.querySelector(
+        ".checklist-inline-add-input"
+      );
+      next == null ? void 0 : next.focus();
+    };
     input.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter" && input.value.trim()) {
-        const name = input.value.trim();
-        await this.manager.addItem(checklist.id, name, {}, "");
-        input.value = "";
-        await this.renderView();
-        this.onRefreshSidebar();
+      if (e.key === "Enter") {
+        await addInline();
       }
     });
+  }
+  getInlineDraft(checklistId) {
+    let draft = this.inlineDraftByChecklist.get(checklistId);
+    if (!draft) {
+      draft = { name: "", description: "", properties: {} };
+      this.inlineDraftByChecklist.set(checklistId, draft);
+    }
+    return draft;
   }
   renderFAB() {
     const fab = this.contentContainer.createDiv({ cls: "checklist-fab" });
@@ -486,19 +547,26 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
     this.listContainer.empty();
   }
   async renderView() {
+    var _a;
     this.listContainer.empty();
     const checklists = this.manager.getSettings().checklists;
     const activeId = this.manager.getSettings().activeChecklistId;
+    const counts = this.manager.getItemCounts();
     if (checklists.length === 0) {
       const empty = this.listContainer.createDiv({ cls: "checklist-sidebar-empty" });
       empty.createEl("p", { text: "No checklists yet." });
       return;
     }
     for (const checklist of checklists) {
-      this.renderChecklistEntry(this.listContainer, checklist, checklist.id === activeId);
+      this.renderChecklistEntry(
+        this.listContainer,
+        checklist,
+        checklist.id === activeId,
+        (_a = counts[checklist.id]) != null ? _a : 0
+      );
     }
   }
-  renderChecklistEntry(container, checklist, isActive) {
+  renderChecklistEntry(container, checklist, isActive, itemCount) {
     const item = container.createDiv({ cls: "tree-item nav-file" });
     const self = item.createDiv({
       cls: `tree-item-self nav-file-title${isActive ? " is-active" : ""}`,
@@ -511,9 +579,7 @@ var ChecklistSidebarView = class extends import_obsidian2.ItemView {
       cls: "tree-item-inner nav-file-title-content"
     });
     const countEl = self.createSpan({ cls: "tree-item-flair" });
-    this.manager.getItems(checklist.id).then((items) => {
-      countEl.setText(String(items.length));
-    });
+    countEl.setText(String(itemCount));
     self.addEventListener("click", () => {
       this.onSelectChecklist(checklist.id);
     });
@@ -627,6 +693,7 @@ var ChecklistManager = class {
         name: folderPath.split("/").pop() || folderPath,
         folderPath,
         properties: [],
+        inlineAddMode: "simple",
         createdAt: (/* @__PURE__ */ new Date()).toISOString(),
         kind: "checklist"
       };
@@ -653,12 +720,18 @@ var ChecklistManager = class {
       name,
       folderPath,
       properties,
+      inlineAddMode: properties.length > 0 ? "form" : "simple",
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       kind
     };
     this.settings.checklists.push(checklist);
     this.settings.activeChecklistId = checklist.id;
-    await this.app.vault.createFolder(folderPath);
+    if (!this.app.vault.getAbstractFileByPath(folderPath)) {
+      try {
+        await this.app.vault.createFolder(folderPath);
+      } catch (e) {
+      }
+    }
     await this.save();
     return checklist;
   }
@@ -776,6 +849,23 @@ ${item.description}` : `${frontmatter}
       });
     }
     return items;
+  }
+  getItemCounts() {
+    var _a;
+    const counts = {};
+    for (const checklist of this.settings.checklists) {
+      counts[checklist.id] = 0;
+    }
+    const files = this.app.vault.getMarkdownFiles();
+    for (const file of files) {
+      for (const checklist of this.settings.checklists) {
+        if (file.path.startsWith(`${checklist.folderPath}/`)) {
+          counts[checklist.id] = ((_a = counts[checklist.id]) != null ? _a : 0) + 1;
+          break;
+        }
+      }
+    }
+    return counts;
   }
   /**
    * Returns the active checklist definition, or null.
@@ -913,6 +1003,7 @@ var CreateListModal = class extends import_obsidian4.Modal {
     super(app);
     this.listName = "";
     this.kind = "checklist";
+    this.inlineAddMode = "simple";
     this.properties = [];
     this.onSubmit = onSubmit;
   }
@@ -947,6 +1038,11 @@ var CreateListModal = class extends import_obsidian4.Modal {
         this.renderProperties(propertiesContainer);
       })
     );
+    new import_obsidian4.Setting(contentEl).setName("Inline add mode").setDesc("Simple uses only name. Form includes description and properties.").addDropdown(
+      (dropdown) => dropdown.addOption("simple", "Simple").addOption("form", "Form").setValue(this.inlineAddMode).onChange((value) => {
+        this.inlineAddMode = value;
+      })
+    );
     new import_obsidian4.Setting(contentEl).addButton(
       (button) => button.setButtonText("Create").setCta().onClick(() => {
         if (!this.listName.trim()) {
@@ -954,7 +1050,7 @@ var CreateListModal = class extends import_obsidian4.Modal {
           return;
         }
         const validProps = this.properties.filter((p) => p.name.trim());
-        this.onSubmit(this.listName.trim(), validProps, this.kind);
+        this.onSubmit(this.listName.trim(), validProps, this.kind, this.inlineAddMode);
         this.close();
       })
     );
@@ -1565,8 +1661,10 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
     }
   }
   openCreateListModal() {
-    new CreateListModal(this.app, async (name, properties, kind) => {
-      await this.manager.createChecklist(name, properties, kind);
+    new CreateListModal(this.app, async (name, properties, kind, inlineAddMode) => {
+      const checklist = await this.manager.createChecklist(name, properties, kind);
+      checklist.inlineAddMode = inlineAddMode;
+      await this.saveSettings();
       new import_obsidian9.Notice(`${kind === "list" ? "List" : "Checklist"} "${name}" created.`);
       this.refreshSidebar();
       await this.activateMainView();
@@ -1671,6 +1769,9 @@ var ChecklistPlugin = class extends import_obsidian9.Plugin {
     for (const c of this.settings.checklists) {
       if (!c.kind)
         c.kind = "checklist";
+      if (!c.inlineAddMode) {
+        c.inlineAddMode = c.properties.length > 0 ? "form" : "simple";
+      }
     }
   }
   async saveSettings() {

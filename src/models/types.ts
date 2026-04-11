@@ -27,6 +27,7 @@ export interface ChecklistDefinition {
     name: string;
     folderPath: string;
     properties: PropertyDefinition[];
+    inlineAddMode?: "simple" | "form";
     createdAt: string;
     kind: ChecklistKind;
 }
