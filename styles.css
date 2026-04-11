@@ -53,10 +53,12 @@
     color: var(--text-normal);
 }
 
+.checklist-add-btn,
 .checklist-export-btn {
     color: var(--text-muted);
 }
 
+.checklist-add-btn:hover,
 .checklist-export-btn:hover {
     color: var(--text-normal);
 }
@@ -207,6 +209,12 @@
     border-bottom-color: var(--interactive-accent);
 }
 
+.checklist-inline-add-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
 .checklist-inline-add-icon {
     flex-shrink: 0;
     display: flex;
@@ -226,6 +234,10 @@
     font-size: var(--font-ui-small);
     padding: 4px 0;
     outline: none;
+}
+
+.checklist-inline-add-form .checklist-inline-add-input {
+    min-width: 140px;
 }
 
 .checklist-inline-add-input::placeholder {
@@ -346,6 +358,11 @@
 /* ===== Modal ===== */
 .checklist-modal {
     max-width: 600px;
+}
+
+.checklist-modal textarea {
+    width: 100%;
+    min-height: 120px;
 }
 
 .checklist-modal h2 {

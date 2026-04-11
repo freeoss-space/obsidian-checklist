@@ -8,12 +8,23 @@ import { ChecklistKind, PropertyDefinition, PropertyType } from "../models/types
 export class CreateListModal extends Modal {
     private listName: string = "";
     private kind: ChecklistKind = "checklist";
+    private inlineAddMode: "simple" | "form" = "simple";
     private properties: PropertyDefinition[] = [];
-    private onSubmit: (name: string, properties: PropertyDefinition[], kind: ChecklistKind) => void;
+    private onSubmit: (
+        name: string,
+        properties: PropertyDefinition[],
+        kind: ChecklistKind,
+        inlineAddMode: "simple" | "form"
+    ) => void;
 
     constructor(
         app: App,
-        onSubmit: (name: string, properties: PropertyDefinition[], kind: ChecklistKind) => void
+        onSubmit: (
+            name: string,
+            properties: PropertyDefinition[],
+            kind: ChecklistKind,
+            inlineAddMode: "simple" | "form"
+        ) => void
     ) {
         super(app);
         this.onSubmit = onSubmit;
@@ -74,6 +85,19 @@ export class CreateListModal extends Modal {
             })
         );
 
+        new Setting(contentEl)
+            .setName("Inline add mode")
+            .setDesc("Simple uses only name. Form includes description and properties.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("simple", "Simple")
+                    .addOption("form", "Form")
+                    .setValue(this.inlineAddMode)
+                    .onChange((value) => {
+                        this.inlineAddMode = value as "simple" | "form";
+                    })
+            );
+
         // Submit
         new Setting(contentEl).addButton((button) =>
             button
@@ -86,7 +110,7 @@ export class CreateListModal extends Modal {
                     }
                     // Filter out empty property names
                     const validProps = this.properties.filter((p) => p.name.trim());
-                    this.onSubmit(this.listName.trim(), validProps, this.kind);
+                    this.onSubmit(this.listName.trim(), validProps, this.kind, this.inlineAddMode);
                     this.close();
                 })
         );
