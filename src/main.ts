@@ -2,19 +2,28 @@ import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_CHECKLIST } from "./constants";
 import { ChecklistManager } from "./core/checklist-manager";
 import { ChecklistSidebarView } from "./ui/sidebar-view";
+import {
+    CreateListModal,
+    assertSafeFolder,
+    normalizeFolder,
+} from "./ui/create-list-modal";
+import { ChecklistSettingTab } from "./ui/settings-tab";
 import type { ChecklistDefinition } from "./core/types";
 
-interface ChecklistSettings {
+export interface ChecklistSettings {
     /** Settings schema version — bump when the shape changes. */
     settingsVersion: number;
     definitions: ChecklistDefinition[];
+    /** Vault-relative default folder for newly created checklists. */
+    defaultFolder: string;
 }
 
-const CURRENT_SETTINGS_VERSION = 1;
+const CURRENT_SETTINGS_VERSION = 2;
 
 const DEFAULT_SETTINGS: ChecklistSettings = {
     settingsVersion: CURRENT_SETTINGS_VERSION,
     definitions: [],
+    defaultFolder: "",
 };
 
 /**
@@ -28,10 +37,24 @@ export function migrateSettings(raw: unknown): ChecklistSettings {
     let settings: ChecklistSettings = {
         settingsVersion: CURRENT_SETTINGS_VERSION,
         definitions: Array.isArray(obj.definitions) ? (obj.definitions as ChecklistDefinition[]) : [],
+        defaultFolder:
+            typeof obj.defaultFolder === "string" ? normalizeFolder(obj.defaultFolder) : "",
     };
     if (version < 1) {
         // No prior versions; seed with defaults.
         settings = { ...settings, settingsVersion: 1 };
+    }
+    if (settings.settingsVersion < 2) {
+        // v2 introduced defaultFolder. Non-string values are coerced to "".
+        settings = { ...settings, defaultFolder: settings.defaultFolder ?? "", settingsVersion: 2 };
+    }
+    // Belt-and-braces: if a persisted folder was tampered with on disk,
+    // refuse to load it into memory. We'd rather start fresh than honor
+    // a malicious path.
+    try {
+        assertSafeFolder(settings.defaultFolder);
+    } catch {
+        settings = { ...settings, defaultFolder: "" };
     }
     return settings;
 }
@@ -50,13 +73,13 @@ export default class ChecklistPlugin extends Plugin {
                 new ChecklistSidebarView(leaf, {
                     manager: this.manager,
                     getDefinitions: () => this.settings.definitions,
-                    saveSettings: () => this.saveData(this.settings),
+                    saveSettings: () => this.saveSettings(),
                     openAddItemModal: async (def) => this.quickAddItem(def),
-                    openCreateListModal: async () => this.quickCreateList(),
+                    openCreateListModal: async () => this.openCreateListModal(),
                 })
         );
 
-        this.addRibbonIcon("check-square", "Open checklist", async () => {
+        this.addRibbonIcon("check-square", "Checklists", async () => {
             await this.activateView();
         });
 
@@ -65,6 +88,14 @@ export default class ChecklistPlugin extends Plugin {
             name: "Open checklist sidebar",
             callback: async () => this.activateView(),
         });
+
+        this.addCommand({
+            id: "checklist-new-list",
+            name: "Create new checklist",
+            callback: () => this.openCreateListModal(),
+        });
+
+        this.addSettingTab(new ChecklistSettingTab(this.app, this));
 
         // Incremental indexing. Subscribe to vault events and patch the cache.
         this.registerEvent(
@@ -89,6 +120,17 @@ export default class ChecklistPlugin extends Plugin {
 
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
+    }
+
+    /**
+     * Commit a new default folder. Validation is a hard gate — invalid
+     * input throws *before* touching plugin state or disk.
+     */
+    async setDefaultFolder(folder: string): Promise<void> {
+        const normalized = normalizeFolder(folder);
+        assertSafeFolder(normalized);
+        this.settings = { ...this.settings, defaultFolder: normalized };
+        await this.saveSettings();
     }
 
     /** Open the view in the LEFT sidebar only. */
@@ -141,27 +183,28 @@ export default class ChecklistPlugin extends Plugin {
         }
     }
 
-    private async quickCreateList(): Promise<void> {
-        const name = typeof window !== "undefined" ? window.prompt("Name the new checklist:") : null;
-        if (!name) return;
-        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-        if (!id) {
-            new Notice("Invalid checklist name");
-            return;
-        }
-        if (this.settings.definitions.find((d) => d.id === id)) {
-            new Notice("A checklist with that id already exists");
-            return;
-        }
-        const def: ChecklistDefinition = {
-            id,
-            name,
-            kind: "checklist",
-            folder: name,
-            properties: [],
-        };
-        this.settings.definitions.push(def);
-        await this.saveSettings();
-        await this.activateView();
+    /**
+     * Open the native Obsidian modal for creating a new checklist. The
+     * modal handles its own validation and hands us a fully-formed
+     * definition — we only need to de-duplicate and persist it.
+     */
+    openCreateListModal(): void {
+        const modal = new CreateListModal(
+            this.app,
+            { defaultFolder: this.settings.defaultFolder },
+            async (def) => {
+                if (this.settings.definitions.find((d) => d.id === def.id)) {
+                    throw new Error("A checklist with that id already exists");
+                }
+                this.settings = {
+                    ...this.settings,
+                    definitions: [...this.settings.definitions, def],
+                };
+                await this.saveSettings();
+                await this.activateView();
+                new Notice(`Checklist "${def.name}" created`);
+            }
+        );
+        modal.open();
     }
 }

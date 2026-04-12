@@ -152,29 +152,233 @@ export class ItemView extends Component {
     }
 }
 
+export interface RegisteredRibbon {
+    icon: string;
+    title: string;
+    cb: (evt?: MouseEvent) => void | Promise<void>;
+    el: HTMLElement;
+}
+
+export interface RegisteredCommand {
+    id: string;
+    name: string;
+    callback?: () => void | Promise<void>;
+    checkCallback?: (checking: boolean) => boolean | void;
+}
+
 export class Plugin extends Component {
     app: App;
     manifest: { id: string; name: string; version: string };
-    constructor(app: App, manifest: { id: string; name: string; version: string }) {
+    /** Test-visible registration ledgers. */
+    public ribbons: RegisteredRibbon[] = [];
+    public commands: RegisteredCommand[] = [];
+    public settingTabs: PluginSettingTab[] = [];
+    public registeredViews: Record<string, (leaf: WorkspaceLeaf) => ItemView> = {};
+    /** In-memory store used by loadData/saveData. */
+    private _data: unknown = null;
+
+    constructor(app?: App, manifest?: { id: string; name: string; version: string }) {
         super();
-        this.app = app;
-        this.manifest = manifest;
+        this.app = app ?? new App();
+        this.manifest = manifest ?? { id: "test", name: "Test", version: "0.0.0" };
     }
-    registerView(_type: string, _factory: (leaf: WorkspaceLeaf) => ItemView): void {}
-    addRibbonIcon(_icon: string, _title: string, _cb: () => void): HTMLElement {
-        return document.createElement("div");
+    registerView(type: string, factory: (leaf: WorkspaceLeaf) => ItemView): void {
+        this.registeredViews[type] = factory;
     }
-    addCommand(_cmd: { id: string; name: string; callback: () => void }): void {}
+    addRibbonIcon(
+        icon: string,
+        title: string,
+        cb: (evt?: MouseEvent) => void | Promise<void>
+    ): HTMLElement {
+        const el = document.createElement("div");
+        el.setAttribute("aria-label", title);
+        el.setAttribute("data-icon", icon);
+        el.addEventListener("click", () => {
+            void cb();
+        });
+        this.ribbons.push({ icon, title, cb, el });
+        return el;
+    }
+    addCommand(cmd: RegisteredCommand): void {
+        this.commands.push(cmd);
+    }
+    addSettingTab(tab: PluginSettingTab): void {
+        this.settingTabs.push(tab);
+    }
     async loadData(): Promise<unknown> {
-        return null;
+        return this._data;
     }
-    async saveData(_data: unknown): Promise<void> {}
+    async saveData(data: unknown): Promise<void> {
+        this._data = data;
+    }
     registerEvent(_evt: unknown): void {}
 }
 
 // Simple helper the plugin uses for icon rendering in tests
 export function setIcon(el: HTMLElement, icon: string): void {
     el.setAttribute("data-icon", icon);
+}
+
+/**
+ * Minimal Modal mock. The real Obsidian API exposes `open()` / `close()`
+ * and expects subclasses to override `onOpen()` / `onClose()`.
+ */
+export class Modal {
+    app: App;
+    containerEl: HTMLElement;
+    modalEl: HTMLElement;
+    titleEl: HTMLElement;
+    contentEl: HTMLElement;
+    public isOpen = false;
+
+    constructor(app: App) {
+        this.app = app;
+        this.containerEl = document.createElement("div");
+        this.containerEl.classList.add("modal-container");
+        this.modalEl = document.createElement("div");
+        this.modalEl.classList.add("modal");
+        this.titleEl = document.createElement("div");
+        this.titleEl.classList.add("modal-title");
+        this.contentEl = document.createElement("div");
+        this.contentEl.classList.add("modal-content");
+        this.modalEl.appendChild(this.titleEl);
+        this.modalEl.appendChild(this.contentEl);
+        this.containerEl.appendChild(this.modalEl);
+    }
+    open(): void {
+        if (this.isOpen) return;
+        this.isOpen = true;
+        // Attach to document so querySelectorAll works in tests.
+        document.body.appendChild(this.containerEl);
+        this.onOpen();
+    }
+    close(): void {
+        if (!this.isOpen) return;
+        this.isOpen = false;
+        this.onClose();
+        if (this.containerEl.parentNode) {
+            this.containerEl.parentNode.removeChild(this.containerEl);
+        }
+        this.contentEl.empty();
+    }
+    onOpen(): void {}
+    onClose(): void {}
+}
+
+/**
+ * Fluent Setting builder. Mirrors the subset of Obsidian's API we use:
+ * setName, setDesc, addText, addButton.
+ */
+export class Setting {
+    public settingEl: HTMLElement;
+    public nameEl: HTMLElement;
+    public descEl: HTMLElement;
+    public controlEl: HTMLElement;
+    public components: Array<TextComponent | ButtonComponent> = [];
+
+    constructor(containerEl: HTMLElement) {
+        this.settingEl = document.createElement("div");
+        this.settingEl.classList.add("setting-item");
+        this.nameEl = document.createElement("div");
+        this.nameEl.classList.add("setting-item-name");
+        this.descEl = document.createElement("div");
+        this.descEl.classList.add("setting-item-description");
+        this.controlEl = document.createElement("div");
+        this.controlEl.classList.add("setting-item-control");
+        this.settingEl.appendChild(this.nameEl);
+        this.settingEl.appendChild(this.descEl);
+        this.settingEl.appendChild(this.controlEl);
+        containerEl.appendChild(this.settingEl);
+    }
+    setName(name: string): this {
+        this.nameEl.textContent = name;
+        return this;
+    }
+    setDesc(desc: string): this {
+        this.descEl.textContent = desc;
+        return this;
+    }
+    addText(cb: (text: TextComponent) => void): this {
+        const t = new TextComponent(this.controlEl);
+        this.components.push(t);
+        cb(t);
+        return this;
+    }
+    addButton(cb: (btn: ButtonComponent) => void): this {
+        const b = new ButtonComponent(this.controlEl);
+        this.components.push(b);
+        cb(b);
+        return this;
+    }
+}
+
+export class TextComponent {
+    public inputEl: HTMLInputElement;
+    private _onChange: ((value: string) => void | Promise<void>) | null = null;
+    constructor(containerEl: HTMLElement) {
+        this.inputEl = document.createElement("input");
+        this.inputEl.type = "text";
+        containerEl.appendChild(this.inputEl);
+        this.inputEl.addEventListener("input", () => {
+            if (this._onChange) void this._onChange(this.inputEl.value);
+        });
+    }
+    setPlaceholder(p: string): this {
+        this.inputEl.placeholder = p;
+        return this;
+    }
+    setValue(v: string): this {
+        this.inputEl.value = v;
+        return this;
+    }
+    getValue(): string {
+        return this.inputEl.value;
+    }
+    onChange(cb: (value: string) => void | Promise<void>): this {
+        this._onChange = cb;
+        return this;
+    }
+}
+
+export class ButtonComponent {
+    public buttonEl: HTMLButtonElement;
+    private _onClick: (() => void | Promise<void>) | null = null;
+    constructor(containerEl: HTMLElement) {
+        this.buttonEl = document.createElement("button");
+        containerEl.appendChild(this.buttonEl);
+        this.buttonEl.addEventListener("click", () => {
+            if (this._onClick) void this._onClick();
+        });
+    }
+    setButtonText(t: string): this {
+        this.buttonEl.textContent = t;
+        return this;
+    }
+    setCta(): this {
+        this.buttonEl.classList.add("mod-cta");
+        return this;
+    }
+    setWarning(): this {
+        this.buttonEl.classList.add("mod-warning");
+        return this;
+    }
+    onClick(cb: () => void | Promise<void>): this {
+        this._onClick = cb;
+        return this;
+    }
+}
+
+export class PluginSettingTab {
+    app: App;
+    plugin: Plugin;
+    containerEl: HTMLElement;
+    constructor(app: App, plugin: Plugin) {
+        this.app = app;
+        this.plugin = plugin;
+        this.containerEl = document.createElement("div");
+    }
+    display(): void {}
+    hide(): void {}
 }
 
 // Add DOM helpers used by Obsidian plugins in real code (createEl etc.)
