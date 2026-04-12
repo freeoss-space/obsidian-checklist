@@ -112,6 +112,9 @@ export class Workspace extends Events {
     getLeftLeaf(_split: boolean): WorkspaceLeaf {
         return new WorkspaceLeaf();
     }
+    getLeaf(_split?: boolean): WorkspaceLeaf {
+        return new WorkspaceLeaf();
+    }
     revealLeaf(_leaf: WorkspaceLeaf): void {}
     detachLeavesOfType(_type: string): void {}
 }
@@ -183,6 +186,8 @@ export class Menu {
 }
 
 export class ItemView extends Component {
+    /** Mirrors the real Obsidian View.app property set by the framework. */
+    app: App = new App();
     contentEl: HTMLElement;
     containerEl: HTMLElement;
     constructor(public leaf: WorkspaceLeaf) {
