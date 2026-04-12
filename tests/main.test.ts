@@ -83,4 +83,54 @@ describe("ChecklistPlugin.onload", () => {
         await plugin.setDefaultFolder("Stuff/Lists/");
         expect(plugin.settings.defaultFolder).toBe("Stuff/Lists");
     });
+
+    it("discovers existing checklist folders on load and merges them into definitions", async () => {
+        const app = new App();
+        await app.vault.create("Checklists/Groceries/Milk.md", `---\ncompleted: false\n---\n`);
+        await app.vault.create("Checklists/Todo/Task1.md", `---\n---\n`);
+
+        const plugin = new ChecklistPlugin(app, MANIFEST);
+        // Seed settings with a defaultFolder and no definitions
+        // @ts-expect-error accessing private _data for test setup
+        plugin._data = { settingsVersion: 2, definitions: [], defaultFolder: "Checklists" };
+        await plugin.onload();
+
+        const names = plugin.settings.definitions.map((d) => d.name).sort();
+        expect(names).toEqual(["Groceries", "Todo"]);
+    });
+
+    it("does not duplicate existing definitions during discovery", async () => {
+        const app = new App();
+        await app.vault.create("Checklists/Groceries/Milk.md", `---\n---\n`);
+        await app.vault.create("Checklists/Todo/Task1.md", `---\n---\n`);
+
+        const plugin = new ChecklistPlugin(app, MANIFEST);
+        const existing = {
+            settingsVersion: 2,
+            defaultFolder: "Checklists",
+            definitions: [
+                { id: "groceries", name: "Groceries", kind: "checklist", folder: "Checklists/Groceries", properties: [] },
+            ],
+        };
+        // @ts-expect-error accessing private _data for test setup
+        plugin._data = existing;
+        await plugin.onload();
+
+        expect(plugin.settings.definitions.length).toBe(2);
+        expect(plugin.settings.definitions.filter((d) => d.name === "Groceries").length).toBe(1);
+    });
+
+    it("persists discovered definitions to disk", async () => {
+        const app = new App();
+        await app.vault.create("Checklists/Books/Novel.md", `---\n---\n`);
+
+        const plugin = new ChecklistPlugin(app, MANIFEST);
+        // @ts-expect-error accessing private _data for test setup
+        plugin._data = { settingsVersion: 2, definitions: [], defaultFolder: "Checklists" };
+        await plugin.onload();
+
+        // loadData should now include the discovered definition
+        const saved = await plugin.loadData() as { definitions: Array<{ name: string }> };
+        expect(saved.definitions.some((d) => d.name === "Books")).toBe(true);
+    });
 });

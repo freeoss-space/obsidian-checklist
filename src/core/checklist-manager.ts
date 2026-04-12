@@ -22,6 +22,14 @@ type FileEvent = "create" | "modify" | "delete";
 const SAFE_NAME = /^[^\\/\x00-\x1f<>:"|?*]{1,200}$/;
 const RESERVED_NAMES = new Set([".", "..", ""]);
 
+function slugify(raw: string): string {
+    return raw
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
 export function posixJoin(folder: string, name: string): string {
     const f = folder.replace(/\/+$/, "");
     if (f === "") return `${name}.md`;
@@ -100,6 +108,65 @@ export class ChecklistManager {
     /** Return a shallow copy of the cached items for a checklist. */
     getCachedItems(def: ChecklistDefinition): ChecklistItem[] {
         return (this.cache.get(def.id) ?? []).slice();
+    }
+
+    /**
+     * Scan the vault for folders containing `.md` files that look like
+     * checklists but don't yet have a definition in settings.
+     *
+     * When `defaultFolder` is set (e.g. "Checklists"), only direct
+     * sub-folders of that folder are considered. When empty, root-level
+     * folders are scanned.
+     */
+    discoverChecklists(
+        defaultFolder: string,
+        existingDefs: ChecklistDefinition[]
+    ): ChecklistDefinition[] {
+        const files = this.app.vault.getMarkdownFiles();
+        const normalizedDefault = defaultFolder.replace(/\/+$/, "");
+        const existingFolders = new Set(
+            existingDefs.map((d) => d.folder.replace(/\/+$/, ""))
+        );
+
+        const candidateFolders = new Set<string>();
+
+        for (const file of files) {
+            if (normalizedDefault === "") {
+                // Root mode: look for files in root-level folders ("Shopping/item.md")
+                const parts = file.path.split("/");
+                if (parts.length === 2 && parts[1].endsWith(".md")) {
+                    candidateFolders.add(parts[0]);
+                }
+            } else {
+                const prefix = normalizedDefault + "/";
+                if (!file.path.startsWith(prefix)) continue;
+                const rel = file.path.slice(prefix.length);
+                const relParts = rel.split("/");
+                // Direct child folder only: "subfolder/file.md"
+                if (relParts.length === 2 && relParts[1].endsWith(".md")) {
+                    candidateFolders.add(relParts[0]);
+                }
+            }
+        }
+
+        const discovered: ChecklistDefinition[] = [];
+        for (const folderName of candidateFolders) {
+            const folder =
+                normalizedDefault === ""
+                    ? folderName
+                    : `${normalizedDefault}/${folderName}`;
+            if (existingFolders.has(folder)) continue;
+
+            discovered.push({
+                id: slugify(folderName),
+                name: folderName,
+                kind: "checklist",
+                folder,
+                properties: [],
+            });
+        }
+
+        return discovered;
     }
 
     /** Does this file belong to the given checklist? */

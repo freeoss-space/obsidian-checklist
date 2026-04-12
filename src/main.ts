@@ -68,6 +68,19 @@ export default class ChecklistPlugin extends Plugin {
         await this.loadSettings();
         this.manager = new ChecklistManager(this.app);
 
+        // Discover existing checklist folders that aren't yet in settings.
+        const discovered = this.manager.discoverChecklists(
+            this.settings.defaultFolder,
+            this.settings.definitions
+        );
+        if (discovered.length > 0) {
+            this.settings = {
+                ...this.settings,
+                definitions: [...this.settings.definitions, ...discovered],
+            };
+            await this.saveSettings();
+        }
+
         this.registerView(
             VIEW_TYPE_CHECKLIST,
             (leaf) =>
