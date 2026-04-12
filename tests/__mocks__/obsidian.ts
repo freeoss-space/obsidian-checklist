@@ -125,11 +125,61 @@ export class App {
     vault = new Vault();
     metadataCache = new MetadataCache();
     workspace = new Workspace();
+    /** Obsidian exposes this to let plugins branch on mobile. */
+    isMobile = false;
 }
 
 export class Component {
     onload(): void {}
     onunload(): void {}
+}
+
+/** Minimal MenuItem mock tracking title / icon / click handler. */
+export class MenuItem {
+    public title = "";
+    public icon: string | null = null;
+    public clickHandler: ((evt?: MouseEvent | KeyboardEvent) => void) | null = null;
+    setTitle(title: string): this {
+        this.title = title;
+        return this;
+    }
+    setIcon(icon: string | null): this {
+        this.icon = icon;
+        return this;
+    }
+    onClick(cb: (evt?: MouseEvent | KeyboardEvent) => void): this {
+        this.clickHandler = cb;
+        return this;
+    }
+    setSection(_s: string): this {
+        return this;
+    }
+    setDisabled(_d: boolean): this {
+        return this;
+    }
+    click(): void {
+        if (this.clickHandler) this.clickHandler();
+    }
+}
+
+/** Minimal Menu mock — enough to exercise addItem() with a callback. */
+export class Menu {
+    public items: MenuItem[] = [];
+    addItem(cb: (item: MenuItem) => unknown): this {
+        const mi = new MenuItem();
+        cb(mi);
+        this.items.push(mi);
+        return this;
+    }
+    addSeparator(): this {
+        return this;
+    }
+    hide(): this {
+        return this;
+    }
+    showAtMouseEvent(_e: MouseEvent): this {
+        return this;
+    }
 }
 
 export class ItemView extends Component {

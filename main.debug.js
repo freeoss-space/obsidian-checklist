@@ -29,7 +29,7 @@ __export(main_exports, {
   migrateSettings: () => migrateSettings
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/constants.ts
 var VIEW_TYPE_CHECKLIST = "checklist-sidebar";
@@ -1177,6 +1177,159 @@ var ChecklistSettingTab = class extends import_obsidian4.PluginSettingTab {
   }
 };
 
+// src/ui/share-to-checklist-modal.ts
+var import_obsidian5 = require("obsidian");
+var MAX_NAME_LEN = 120;
+var FIRST_LINE_SCAN_CAP = 1024;
+function deriveItemName(shared) {
+  if (typeof shared !== "string" || shared.length === 0)
+    return "";
+  const head = shared.slice(0, FIRST_LINE_SCAN_CAP);
+  const nl = head.indexOf("\n");
+  const firstLine = (nl === -1 ? head : head.slice(0, nl)).trim();
+  return firstLine.slice(0, MAX_NAME_LEN);
+}
+var ShareToChecklistModal = class extends import_obsidian5.Modal {
+  constructor(app, manager, options) {
+    super(app);
+    this.selectedId = "";
+    this.itemName = "";
+    this.busy = false;
+    this.picker = null;
+    this.nameInput = null;
+    this.errorEl = null;
+    /** Lifecycle flag toggled by onOpen/onClose. Test-visible. */
+    this.isOpen = false;
+    this.manager = manager;
+    this.options = options;
+    this.itemName = deriveItemName(options.shared);
+    if (options.defaultDefinitionId && options.definitions.some((d) => d.id === options.defaultDefinitionId)) {
+      this.selectedId = options.defaultDefinitionId;
+    } else if (options.definitions.length > 0) {
+      this.selectedId = options.definitions[0].id;
+    }
+  }
+  onOpen() {
+    this.isOpen = true;
+    this.titleEl.textContent = "Add to Checklist";
+    const c = this.contentEl;
+    c.empty();
+    c.addClass("share-to-checklist-modal");
+    if (this.options.definitions.length === 0) {
+      const empty = c.createDiv({ cls: "share-empty" });
+      empty.textContent = "No checklists yet. Create one first, then share here again.";
+      const actions2 = c.createDiv({ cls: "share-actions" });
+      const closeBtn = actions2.createEl("button", {
+        text: "Close",
+        cls: "share-cancel",
+        attr: { type: "button" }
+      });
+      closeBtn.addEventListener("click", () => this.close());
+      return;
+    }
+    const pickerRow = c.createDiv({ cls: "share-row" });
+    pickerRow.createEl("label", { text: "Checklist", cls: "share-label" });
+    this.picker = pickerRow.createEl("select", { cls: "share-checklist-picker" });
+    for (const d of this.options.definitions) {
+      const opt = this.picker.createEl("option", {
+        text: d.name,
+        attr: { value: d.id }
+      });
+      if (d.id === this.selectedId)
+        opt.selected = true;
+    }
+    this.picker.addEventListener("change", () => {
+      var _a, _b;
+      this.selectedId = (_b = (_a = this.picker) == null ? void 0 : _a.value) != null ? _b : "";
+    });
+    const nameRow = c.createDiv({ cls: "share-row" });
+    nameRow.createEl("label", { text: "Item name", cls: "share-label" });
+    this.nameInput = nameRow.createEl("input", {
+      cls: "share-item-name",
+      attr: {
+        type: "text",
+        maxlength: String(MAX_NAME_LEN),
+        placeholder: "Item name"
+      }
+    });
+    this.nameInput.value = this.itemName;
+    this.nameInput.addEventListener("input", () => {
+      var _a, _b;
+      this.itemName = (_b = (_a = this.nameInput) == null ? void 0 : _a.value) != null ? _b : "";
+      this.clearError();
+    });
+    if (this.options.shared && this.options.shared.length > 0) {
+      const previewRow = c.createDiv({ cls: "share-row" });
+      previewRow.createEl("label", { text: "Shared text", cls: "share-label" });
+      const preview = previewRow.createEl("div", { cls: "share-preview" });
+      preview.textContent = this.options.shared.slice(0, 2e3);
+    }
+    this.errorEl = c.createDiv({ cls: "share-error" });
+    this.errorEl.setAttribute("role", "alert");
+    const actions = c.createDiv({ cls: "share-actions" });
+    const cancelBtn = actions.createEl("button", {
+      text: "Cancel",
+      cls: "share-cancel",
+      attr: { type: "button" }
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+    const submitBtn = actions.createEl("button", {
+      text: "Add item",
+      cls: ["share-submit", "mod-cta"],
+      attr: { type: "button" }
+    });
+    submitBtn.addEventListener("click", () => {
+      void this.handleSubmit();
+    });
+    queueMicrotask(() => {
+      var _a;
+      return (_a = this.nameInput) == null ? void 0 : _a.focus();
+    });
+  }
+  onClose() {
+    this.isOpen = false;
+  }
+  showError(message) {
+    if (this.errorEl)
+      this.errorEl.textContent = message;
+  }
+  clearError() {
+    if (this.errorEl)
+      this.errorEl.textContent = "";
+  }
+  async handleSubmit() {
+    var _a;
+    if (this.busy)
+      return;
+    this.busy = true;
+    try {
+      const def = this.options.definitions.find((d) => d.id === this.selectedId);
+      if (!def) {
+        this.showError("Please select a checklist.");
+        return;
+      }
+      const name = ((_a = this.itemName) != null ? _a : "").trim();
+      try {
+        assertSafeChecklistName(name);
+      } catch (err) {
+        this.showError(err.message);
+        return;
+      }
+      try {
+        await this.manager.createItem(def, name, {});
+      } catch (err) {
+        this.showError(err.message);
+        return;
+      }
+      new import_obsidian5.Notice(`Added "${name}" to ${def.name}`);
+      this.options.onItemAdded(def.id);
+      this.close();
+    } finally {
+      this.busy = false;
+    }
+  }
+};
+
 // src/main.ts
 var CURRENT_SETTINGS_VERSION = 2;
 var DEFAULT_SETTINGS = {
@@ -1208,7 +1361,7 @@ function migrateSettings(raw) {
   }
   return settings;
 }
-var ChecklistPlugin = class extends import_obsidian5.Plugin {
+var ChecklistPlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULT_SETTINGS };
@@ -1240,6 +1393,7 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
       callback: () => this.openCreateListModal()
     });
     this.addSettingTab(new ChecklistSettingTab(this.app, this));
+    this.registerShareIntentHandlers();
     this.registerEvent(
       this.app.vault.on("create", (file) => this.handleVaultEvent("create", file))
     );
@@ -1249,6 +1403,50 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
     this.registerEvent(
       this.app.vault.on("delete", (file) => this.handleVaultEvent("delete", file))
     );
+  }
+  /**
+   * Contribute an "Add to Checklist" entry to the mobile share-sheet
+   * menu for both shared text and shared URLs. Guarded behind
+   * `app.isMobile` so desktop Obsidian isn't told about events it
+   * doesn't fire.
+   */
+  registerShareIntentHandlers() {
+    const app = this.app;
+    if (!app.isMobile)
+      return;
+    const contribute = (menu, shared) => {
+      if (typeof shared !== "string")
+        return;
+      const capped = shared.slice(0, 1e4);
+      menu.addItem((item) => {
+        item.setTitle("Add to Checklist").setIcon("check-square").onClick(() => {
+          this.openShareModal(capped);
+        });
+      });
+    };
+    const ws = this.app.workspace;
+    this.registerEvent(ws.on("receive-text-menu", contribute));
+    this.registerEvent(ws.on("receive-url-menu", contribute));
+  }
+  /**
+   * Opens the share-to-checklist modal for a captured payload. Exposed
+   * (not private) so tests and future entry points (e.g. an
+   * `obsidian://` protocol handler) can reuse it.
+   */
+  openShareModal(shared) {
+    const modal = new ShareToChecklistModal(this.app, this.manager, {
+      shared,
+      definitions: this.settings.definitions,
+      onItemAdded: (id) => {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
+        for (const leaf of leaves) {
+          const v = leaf.view;
+          if (v instanceof ChecklistSidebarView)
+            v.refresh();
+        }
+      }
+    });
+    modal.open();
   }
   async onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
@@ -1280,7 +1478,7 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
     } else {
       leaf = workspace.getLeftLeaf(false);
       if (!leaf) {
-        new import_obsidian5.Notice("Could not open left sidebar leaf");
+        new import_obsidian6.Notice("Could not open left sidebar leaf");
         return;
       }
       await leaf.setViewState({ type: VIEW_TYPE_CHECKLIST, active: true });
@@ -1289,7 +1487,7 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
       workspace.revealLeaf(leaf);
   }
   handleVaultEvent(event, file) {
-    if (!(file instanceof import_obsidian5.TFile))
+    if (!(file instanceof import_obsidian6.TFile))
       return;
     if (file.extension !== "md")
       return;
@@ -1318,9 +1516,9 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
       return;
     try {
       await this.manager.createItem(def, name, {});
-      new import_obsidian5.Notice(`Added "${name}"`);
+      new import_obsidian6.Notice(`Added "${name}"`);
     } catch (err) {
-      new import_obsidian5.Notice(`Failed to add item: ${err.message}`);
+      new import_obsidian6.Notice(`Failed to add item: ${err.message}`);
     }
   }
   /**
@@ -1342,7 +1540,7 @@ var ChecklistPlugin = class extends import_obsidian5.Plugin {
         };
         await this.saveSettings();
         await this.activateView();
-        new import_obsidian5.Notice(`Checklist "${def.name}" created`);
+        new import_obsidian6.Notice(`Checklist "${def.name}" created`);
       }
     );
     modal.open();

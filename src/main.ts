@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Menu, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_CHECKLIST } from "./constants";
 import { ChecklistManager } from "./core/checklist-manager";
 import { ChecklistSidebarView } from "./ui/sidebar-view";
@@ -8,6 +8,7 @@ import {
     normalizeFolder,
 } from "./ui/create-list-modal";
 import { ChecklistSettingTab } from "./ui/settings-tab";
+import { ShareToChecklistModal } from "./ui/share-to-checklist-modal";
 import type { ChecklistDefinition } from "./core/types";
 
 export interface ChecklistSettings {
@@ -97,6 +98,11 @@ export default class ChecklistPlugin extends Plugin {
 
         this.addSettingTab(new ChecklistSettingTab(this.app, this));
 
+        // Mobile share intent: let the user send shared text/URLs into a
+        // checklist via the OS share sheet. Desktop has no such event,
+        // so we skip registration there.
+        this.registerShareIntentHandlers();
+
         // Incremental indexing. Subscribe to vault events and patch the cache.
         this.registerEvent(
             this.app.vault.on("create", (file) => this.handleVaultEvent("create", file))
@@ -107,6 +113,61 @@ export default class ChecklistPlugin extends Plugin {
         this.registerEvent(
             this.app.vault.on("delete", (file) => this.handleVaultEvent("delete", file))
         );
+    }
+
+    /**
+     * Contribute an "Add to Checklist" entry to the mobile share-sheet
+     * menu for both shared text and shared URLs. Guarded behind
+     * `app.isMobile` so desktop Obsidian isn't told about events it
+     * doesn't fire.
+     */
+    private registerShareIntentHandlers(): void {
+        // Some runtimes (desktop, older Obsidian) don't have `isMobile`;
+        // treat its absence as "not mobile" and skip registration.
+        const app = this.app as unknown as { isMobile?: boolean };
+        if (!app.isMobile) return;
+
+        const contribute = (menu: Menu, shared: string): void => {
+            // Hard gate: only accept string payloads of a sane length.
+            // A multi-megabyte share would otherwise balloon the DOM.
+            if (typeof shared !== "string") return;
+            const capped = shared.slice(0, 10_000);
+            menu.addItem((item) => {
+                item.setTitle("Add to Checklist")
+                    .setIcon("check-square")
+                    .onClick(() => {
+                        this.openShareModal(capped);
+                    });
+            });
+        };
+
+        const ws = this.app.workspace as unknown as {
+            on: (name: string, cb: (menu: Menu, payload: string) => void) => unknown;
+        };
+        this.registerEvent(ws.on("receive-text-menu", contribute) as never);
+        this.registerEvent(ws.on("receive-url-menu", contribute) as never);
+    }
+
+    /**
+     * Opens the share-to-checklist modal for a captured payload. Exposed
+     * (not private) so tests and future entry points (e.g. an
+     * `obsidian://` protocol handler) can reuse it.
+     */
+    openShareModal(shared: string): void {
+        const modal = new ShareToChecklistModal(this.app, this.manager, {
+            shared,
+            definitions: this.settings.definitions,
+            onItemAdded: (id) => {
+                // Refresh any open sidebar views so the new item shows up.
+                const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
+                for (const leaf of leaves) {
+                    const v = leaf.view;
+                    if (v instanceof ChecklistSidebarView) v.refresh();
+                }
+                void id;
+            },
+        });
+        modal.open();
     }
 
     async onunload(): Promise<void> {
