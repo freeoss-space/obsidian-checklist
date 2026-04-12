@@ -1,12 +1,14 @@
 import { Menu, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
-import { VIEW_TYPE_CHECKLIST } from "./constants";
+import { VIEW_TYPE_CHECKLIST, VIEW_TYPE_CHECKLIST_MAIN } from "./constants";
 import { ChecklistManager } from "./core/checklist-manager";
 import { ChecklistSidebarView } from "./ui/sidebar-view";
+import { ChecklistMainView } from "./ui/checklist-main-view";
 import {
     CreateListModal,
     assertSafeFolder,
     normalizeFolder,
 } from "./ui/create-list-modal";
+import { EditListModal } from "./ui/edit-list-modal";
 import { ChecklistSettingTab } from "./ui/settings-tab";
 import { ShareToChecklistModal } from "./ui/share-to-checklist-modal";
 import type { ChecklistDefinition } from "./core/types";
@@ -81,26 +83,39 @@ export default class ChecklistPlugin extends Plugin {
             await this.saveSettings();
         }
 
+        // Sidebar view — list management (create, edit, delete, navigate).
         this.registerView(
             VIEW_TYPE_CHECKLIST,
             (leaf) =>
                 new ChecklistSidebarView(leaf, {
+                    getDefinitions: () => this.settings.definitions,
+                    openCreateListModal: () => this.openCreateListModal(),
+                    openEditListModal: (def) => this.openEditListModal(def),
+                    onDeleteList: (id) => this.deleteList(id),
+                    onSelectList: (id) => this.activateMainView(id),
+                })
+        );
+
+        // Main view — item display for the active checklist.
+        this.registerView(
+            VIEW_TYPE_CHECKLIST_MAIN,
+            (leaf) =>
+                new ChecklistMainView(leaf, {
                     manager: this.manager,
                     getDefinitions: () => this.settings.definitions,
                     saveSettings: () => this.saveSettings(),
                     openAddItemModal: async (def) => this.quickAddItem(def),
-                    openCreateListModal: async () => this.openCreateListModal(),
                 })
         );
 
         this.addRibbonIcon("check-square", "Checklists", async () => {
-            await this.activateView();
+            await this.activateSidebarView();
         });
 
         this.addCommand({
             id: "checklist-open",
             name: "Open checklist sidebar",
-            callback: async () => this.activateView(),
+            callback: async () => this.activateSidebarView(),
         });
 
         this.addCommand({
@@ -130,19 +145,13 @@ export default class ChecklistPlugin extends Plugin {
 
     /**
      * Contribute an "Add to Checklist" entry to the mobile share-sheet
-     * menu for both shared text and shared URLs. Guarded behind
-     * `app.isMobile` so desktop Obsidian isn't told about events it
-     * doesn't fire.
+     * menu for both shared text and shared URLs.
      */
     private registerShareIntentHandlers(): void {
-        // Some runtimes (desktop, older Obsidian) don't have `isMobile`;
-        // treat its absence as "not mobile" and skip registration.
         const app = this.app as unknown as { isMobile?: boolean };
         if (!app.isMobile) return;
 
         const contribute = (menu: Menu, shared: string): void => {
-            // Hard gate: only accept string payloads of a sane length.
-            // A multi-megabyte share would otherwise balloon the DOM.
             if (typeof shared !== "string") return;
             const capped = shared.slice(0, 10_000);
             menu.addItem((item) => {
@@ -161,22 +170,12 @@ export default class ChecklistPlugin extends Plugin {
         this.registerEvent(ws.on("receive-url-menu", contribute) as never);
     }
 
-    /**
-     * Opens the share-to-checklist modal for a captured payload. Exposed
-     * (not private) so tests and future entry points (e.g. an
-     * `obsidian://` protocol handler) can reuse it.
-     */
     openShareModal(shared: string): void {
         const modal = new ShareToChecklistModal(this.app, this.manager, {
             shared,
             definitions: this.settings.definitions,
             onItemAdded: (id) => {
-                // Refresh any open sidebar views so the new item shows up.
-                const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
-                for (const leaf of leaves) {
-                    const v = leaf.view;
-                    if (v instanceof ChecklistSidebarView) v.refresh();
-                }
+                this.refreshMainViews();
                 void id;
             },
         });
@@ -185,6 +184,7 @@ export default class ChecklistPlugin extends Plugin {
 
     async onunload(): Promise<void> {
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
+        this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST_MAIN);
     }
 
     async loadSettings(): Promise<void> {
@@ -196,10 +196,6 @@ export default class ChecklistPlugin extends Plugin {
         await this.saveData(this.settings);
     }
 
-    /**
-     * Commit a new default folder. Validation is a hard gate — invalid
-     * input throws *before* touching plugin state or disk.
-     */
     async setDefaultFolder(folder: string): Promise<void> {
         const normalized = normalizeFolder(folder);
         assertSafeFolder(normalized);
@@ -207,8 +203,10 @@ export default class ChecklistPlugin extends Plugin {
         await this.saveSettings();
     }
 
-    /** Open the view in the LEFT sidebar only. */
-    private async activateView(): Promise<void> {
+    // ----- view activation -----
+
+    /** Open the sidebar in the LEFT panel (creates it if not already open). */
+    private async activateSidebarView(): Promise<void> {
         const { workspace } = this.app;
         const existing = workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
         let leaf: WorkspaceLeaf | null;
@@ -217,7 +215,7 @@ export default class ChecklistPlugin extends Plugin {
         } else {
             leaf = workspace.getLeftLeaf(false);
             if (!leaf) {
-                new Notice("Could not open left sidebar leaf");
+                new Notice("Could not open sidebar");
                 return;
             }
             await leaf.setViewState({ type: VIEW_TYPE_CHECKLIST, active: true });
@@ -225,42 +223,35 @@ export default class ChecklistPlugin extends Plugin {
         if (leaf) workspace.revealLeaf(leaf);
     }
 
-    private handleVaultEvent(event: "create" | "modify" | "delete", file: unknown): void {
-        if (!(file instanceof TFile)) return;
-        if (file.extension !== "md") return;
-        let changed = false;
-        for (const def of this.settings.definitions) {
-            if (this.manager.onFileEvent(event, file, def)) changed = true;
-        }
-        if (changed) {
-            const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
-            for (const leaf of leaves) {
-                const v = leaf.view;
-                if (v instanceof ChecklistSidebarView) v.refresh();
-            }
-        }
-    }
-
     /**
-     * Temporary lightweight "quick add" — asks via Notice until a modal is
-     * needed. TASKS 3.5 (Quick-add bar) can later route through the toolbar
-     * input directly.
+     * Open the main content view for the given checklist id.
+     * Reuses an existing main leaf if one is already open.
      */
-    private async quickAddItem(def: ChecklistDefinition): Promise<void> {
-        const name = typeof window !== "undefined" ? window.prompt(`New item in "${def.name}"`) : null;
-        if (!name) return;
-        try {
-            await this.manager.createItem(def, name, {});
-            new Notice(`Added "${name}"`);
-        } catch (err) {
-            new Notice(`Failed to add item: ${(err as Error).message}`);
+    private async activateMainView(id: string): Promise<void> {
+        const { workspace } = this.app;
+        const existing = workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_MAIN);
+        let leaf: WorkspaceLeaf | null;
+        if (existing.length > 0) {
+            leaf = existing[0];
+        } else {
+            leaf = workspace.getLeaf(false);
+            if (!leaf) {
+                new Notice("Could not open main view");
+                return;
+            }
+            await leaf.setViewState({ type: VIEW_TYPE_CHECKLIST_MAIN, active: true });
+        }
+        if (leaf) workspace.revealLeaf(leaf);
+        const view = leaf?.view;
+        if (view instanceof ChecklistMainView) {
+            await view.selectChecklist(id);
         }
     }
 
+    // ----- list management -----
+
     /**
-     * Open the native Obsidian modal for creating a new checklist. The
-     * modal handles its own validation and hands us a fully-formed
-     * definition — we only need to de-duplicate and persist it.
+     * Open the native Obsidian modal for creating a new checklist.
      */
     openCreateListModal(): void {
         const modal = new CreateListModal(
@@ -275,10 +266,86 @@ export default class ChecklistPlugin extends Plugin {
                     definitions: [...this.settings.definitions, def],
                 };
                 await this.saveSettings();
-                await this.activateView();
+                this.refreshSidebarViews();
+                await this.activateSidebarView();
                 new Notice(`Checklist "${def.name}" created`);
             }
         );
         modal.open();
+    }
+
+    /**
+     * Open the native Obsidian modal for editing an existing checklist.
+     */
+    openEditListModal(def: ChecklistDefinition): void {
+        const modal = new EditListModal(this.app, def, async (updated) => {
+            this.settings = {
+                ...this.settings,
+                definitions: this.settings.definitions.map((d) =>
+                    d.id === updated.id ? updated : d
+                ),
+            };
+            await this.saveSettings();
+            this.refreshSidebarViews();
+            this.refreshMainViews();
+        });
+        modal.open();
+    }
+
+    /**
+     * Remove a checklist definition from settings. Does not delete vault files.
+     */
+    async deleteList(id: string): Promise<void> {
+        this.settings = {
+            ...this.settings,
+            definitions: this.settings.definitions.filter((d) => d.id !== id),
+        };
+        await this.saveSettings();
+        this.refreshSidebarViews();
+    }
+
+    // ----- helpers -----
+
+    private refreshSidebarViews(): void {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
+        for (const leaf of leaves) {
+            const v = leaf.view;
+            if (v instanceof ChecklistSidebarView) v.refresh();
+        }
+    }
+
+    private refreshMainViews(): void {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_MAIN);
+        for (const leaf of leaves) {
+            const v = leaf.view;
+            if (v instanceof ChecklistMainView) v.refresh();
+        }
+    }
+
+    private handleVaultEvent(event: "create" | "modify" | "delete", file: unknown): void {
+        if (!(file instanceof TFile)) return;
+        if (file.extension !== "md") return;
+        let changed = false;
+        for (const def of this.settings.definitions) {
+            if (this.manager.onFileEvent(event, file, def)) changed = true;
+        }
+        if (changed) {
+            this.refreshMainViews();
+        }
+    }
+
+    /**
+     * Lightweight quick-add via window.prompt until a dedicated add-item
+     * modal is implemented.
+     */
+    private async quickAddItem(def: ChecklistDefinition): Promise<void> {
+        const name = typeof window !== "undefined" ? window.prompt(`New item in "${def.name}"`) : null;
+        if (!name) return;
+        try {
+            await this.manager.createItem(def, name, {});
+            new Notice(`Added "${name}"`);
+        } catch (err) {
+            new Notice(`Failed to add item: ${(err as Error).message}`);
+        }
     }
 }

@@ -1,9 +1,8 @@
-import { App, WorkspaceLeaf } from "obsidian";
-import { ChecklistSidebarView } from "src/ui/sidebar-view";
-import { ChecklistManager } from "src/core/checklist-manager";
+import { WorkspaceLeaf } from "obsidian";
+import { ChecklistSidebarView, ChecklistSidebarDeps } from "src/ui/sidebar-view";
 import type { ChecklistDefinition } from "src/core/types";
 
-const def: ChecklistDefinition = {
+const defBooks: ChecklistDefinition = {
     id: "books",
     name: "Books",
     kind: "checklist",
@@ -11,142 +10,152 @@ const def: ChecklistDefinition = {
     properties: [{ key: "author", type: "text" }],
 };
 
-async function makeView(app: App, mgr: ChecklistManager): Promise<ChecklistSidebarView> {
+const defGroceries: ChecklistDefinition = {
+    id: "groceries",
+    name: "Groceries",
+    kind: "list",
+    folder: "Groceries",
+    properties: [],
+};
+
+function makeDeps(overrides: Partial<ChecklistSidebarDeps> = {}): ChecklistSidebarDeps {
+    return {
+        getDefinitions: () => [defBooks, defGroceries],
+        openCreateListModal: jest.fn(),
+        openEditListModal: jest.fn(),
+        onDeleteList: jest.fn().mockResolvedValue(undefined),
+        onSelectList: jest.fn().mockResolvedValue(undefined),
+        ...overrides,
+    };
+}
+
+async function makeView(deps: ChecklistSidebarDeps): Promise<ChecklistSidebarView> {
     const leaf = new WorkspaceLeaf();
-    const view = new ChecklistSidebarView(leaf, {
-        manager: mgr,
-        getDefinitions: () => [def],
-        saveSettings: async () => {},
-        openAddItemModal: async () => {},
-        openCreateListModal: async () => {},
-    });
+    const view = new ChecklistSidebarView(leaf, deps);
     await view.onOpen();
     return view;
 }
 
-describe("ChecklistSidebarView", () => {
-    let app: App;
-    let mgr: ChecklistManager;
-
-    beforeEach(async () => {
-        app = new App();
-        mgr = new ChecklistManager(app);
-        await app.vault.create("Books/Alpha.md", `---\ncompleted: false\nauthor: Alice\n---\n`);
-        await app.vault.create("Books/Beta.md", `---\ncompleted: true\nauthor: Bob\n---\n`);
+describe("ChecklistSidebarView (list management)", () => {
+    afterEach(() => {
+        document.body.innerHTML = "";
     });
 
-    it("renders in the left leaf and exposes correct view type", async () => {
-        const view = await makeView(app, mgr);
+    it("exposes the correct view type", async () => {
+        const view = await makeView(makeDeps());
         expect(view.getViewType()).toBe("checklist-sidebar");
-        expect(view.getDisplayText()).toMatch(/Checklist/i);
+        expect(view.getDisplayText()).toMatch(/checklist/i);
     });
 
-    it("renders a toolbar with search input and status filter", async () => {
-        const view = await makeView(app, mgr);
-        const root = view.contentEl;
-        expect(root.querySelector("input.checklist-search")).not.toBeNull();
-        expect(root.querySelector("select.checklist-status")).not.toBeNull();
+    it("renders a + New list button", async () => {
+        const view = await makeView(makeDeps());
+        const btn = view.contentEl.querySelector("button.checklist-new-list");
+        expect(btn).not.toBeNull();
+        expect(btn!.textContent).toContain("New list");
     });
 
-    it("lists items from the selected checklist", async () => {
-        const view = await makeView(app, mgr);
-        await view.selectChecklist("books");
-        const items = view.contentEl.querySelectorAll(".checklist-item");
-        expect(items.length).toBe(2);
-        const labels = Array.from(items).map((el: Element) => (el.textContent || "").trim());
-        expect(labels.some((t) => t.includes("Alpha"))).toBe(true);
-        expect(labels.some((t) => t.includes("Beta"))).toBe(true);
+    it("clicking + New list calls openCreateListModal", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const btn = view.contentEl.querySelector("button.checklist-new-list") as HTMLButtonElement;
+        btn.click();
+        expect(deps.openCreateListModal).toHaveBeenCalledTimes(1);
     });
 
-    it("filters items via search input (live)", async () => {
-        const view = await makeView(app, mgr);
-        await view.selectChecklist("books");
-        const input = view.contentEl.querySelector("input.checklist-search") as HTMLInputElement;
-        input.value = "alp";
-        input.dispatchEvent(new Event("input"));
-        const items = view.contentEl.querySelectorAll(".checklist-item");
-        expect(items.length).toBe(1);
-        expect((items[0].textContent || "").trim()).toContain("Alpha");
+    it("renders one row per definition", async () => {
+        const view = await makeView(makeDeps());
+        const rows = view.contentEl.querySelectorAll(".checklist-sidebar-row");
+        expect(rows.length).toBe(2);
     });
 
-    it("filters items by status", async () => {
-        const view = await makeView(app, mgr);
-        await view.selectChecklist("books");
-        const select = view.contentEl.querySelector("select.checklist-status") as HTMLSelectElement;
-        select.value = "done";
-        select.dispatchEvent(new Event("change"));
-        const items = view.contentEl.querySelectorAll(".checklist-item");
-        expect(items.length).toBe(1);
-        expect((items[0].textContent || "").trim()).toContain("Beta");
+    it("each row shows the definition name", async () => {
+        const view = await makeView(makeDeps());
+        const rows = view.contentEl.querySelectorAll(".checklist-sidebar-row");
+        const texts = Array.from(rows).map((r) => r.textContent || "");
+        expect(texts.some((t) => t.includes("Books"))).toBe(true);
+        expect(texts.some((t) => t.includes("Groceries"))).toBe(true);
     });
 
-    it("toggles completion on checkbox click and writes to disk", async () => {
-        const view = await makeView(app, mgr);
-        await view.selectChecklist("books");
-        const alphaRow = Array.from(view.contentEl.querySelectorAll(".checklist-item"))
-            .find((el: Element) => (el.textContent || "").includes("Alpha")) as HTMLElement;
-        const box = alphaRow.querySelector("input[type=checkbox]") as HTMLInputElement;
-        box.checked = true;
-        box.dispatchEvent(new Event("change"));
-        // Wait a tick for the async update
+    it("each row has an edit button and a delete button", async () => {
+        const view = await makeView(makeDeps());
+        const rows = view.contentEl.querySelectorAll(".checklist-sidebar-row");
+        for (const row of Array.from(rows)) {
+            expect(row.querySelector("button.checklist-sidebar-edit")).not.toBeNull();
+            expect(row.querySelector("button.checklist-sidebar-delete")).not.toBeNull();
+        }
+    });
+
+    it("clicking a list name calls onSelectList with the definition id", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const nameBtn = view.contentEl.querySelector(".checklist-sidebar-name") as HTMLButtonElement;
+        nameBtn.click();
         await new Promise((r) => setTimeout(r, 0));
-        const content = await app.vault.read(app.vault.getMarkdownFiles().find((f) => f.basename === "Alpha")!);
-        expect(content).toMatch(/completed: true/);
+        expect(deps.onSelectList).toHaveBeenCalledWith(defBooks.id);
+    });
+
+    it("clicking the edit button calls openEditListModal with the definition", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const editBtns = view.contentEl.querySelectorAll("button.checklist-sidebar-edit");
+        (editBtns[0] as HTMLButtonElement).click();
+        expect(deps.openEditListModal).toHaveBeenCalledWith(defBooks);
+    });
+
+    it("clicking delete opens a confirmation modal", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const deleteBtns = view.contentEl.querySelectorAll("button.checklist-sidebar-delete");
+        (deleteBtns[0] as HTMLButtonElement).click();
+        // The confirmation modal should be present in the DOM
+        const modal = document.body.querySelector(".confirm-delete-modal");
+        expect(modal).not.toBeNull();
+    });
+
+    it("confirming delete calls onDeleteList with the definition id", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const deleteBtns = view.contentEl.querySelectorAll("button.checklist-sidebar-delete");
+        (deleteBtns[0] as HTMLButtonElement).click();
+        const confirmBtn = document.body.querySelector("button.confirm-delete-confirm") as HTMLButtonElement;
+        expect(confirmBtn).not.toBeNull();
+        confirmBtn.click();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(deps.onDeleteList).toHaveBeenCalledWith(defBooks.id);
+    });
+
+    it("cancelling delete does NOT call onDeleteList", async () => {
+        const deps = makeDeps();
+        const view = await makeView(deps);
+        const deleteBtns = view.contentEl.querySelectorAll("button.checklist-sidebar-delete");
+        (deleteBtns[0] as HTMLButtonElement).click();
+        const cancelBtn = document.body.querySelector("button.confirm-delete-cancel") as HTMLButtonElement;
+        cancelBtn.click();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(deps.onDeleteList).not.toHaveBeenCalled();
     });
 
     it("shows an empty-state message when there are no definitions", async () => {
-        const leaf = new WorkspaceLeaf();
-        const view = new ChecklistSidebarView(leaf, {
-            manager: mgr,
-            getDefinitions: () => [],
-            saveSettings: async () => {},
-            openAddItemModal: async () => {},
-            openCreateListModal: async () => {},
-        });
-        await view.onOpen();
+        const deps = makeDeps({ getDefinitions: () => [] });
+        const view = await makeView(deps);
         expect((view.contentEl.textContent || "").toLowerCase()).toContain("no checklist");
     });
 
-    it("shows discovered checklists in the dropdown and lists their items", async () => {
-        // Simulate the full flow: files exist on disk, manager discovers them,
-        // and the sidebar shows items from discovered checklists.
-        await app.vault.create("Lists/Groceries/Milk.md", `---\ncompleted: false\n---\n`);
-        await app.vault.create("Lists/Groceries/Eggs.md", `---\ncompleted: true\n---\n`);
-
-        // Discover checklists from "Lists" folder
-        const discovered = mgr.discoverChecklists("Lists", []);
-        expect(discovered.length).toBe(1);
-        expect(discovered[0].name).toBe("Groceries");
-
-        // Build a view using the discovered definition
-        const leaf = new WorkspaceLeaf();
-        const view = new ChecklistSidebarView(leaf, {
-            manager: mgr,
-            getDefinitions: () => discovered,
-            saveSettings: async () => {},
-            openAddItemModal: async () => {},
-            openCreateListModal: async () => {},
-        });
-        await view.onOpen();
-
-        // The dropdown should show "Groceries"
-        const picker = view.contentEl.querySelector("select.checklist-picker") as HTMLSelectElement;
-        const options = Array.from(picker.options).map((o) => o.text);
-        expect(options).toContain("Groceries");
-
-        // Items should be listed
-        const items = view.contentEl.querySelectorAll(".checklist-item");
-        expect(items.length).toBe(2);
-        const names = Array.from(items).map((el: Element) => (el.textContent || "").trim());
-        expect(names.some((t) => t.includes("Milk"))).toBe(true);
-        expect(names.some((t) => t.includes("Eggs"))).toBe(true);
+    it("does NOT render checklist items, search input, or status filter", async () => {
+        const view = await makeView(makeDeps());
+        expect(view.contentEl.querySelector(".checklist-item")).toBeNull();
+        expect(view.contentEl.querySelector("input.checklist-search")).toBeNull();
+        expect(view.contentEl.querySelector("select.checklist-status")).toBeNull();
     });
 
-    it("sanitizes item names — renders as text, not HTML", async () => {
-        await app.vault.create("Books/<img src=x>.md", `---\ncompleted: false\n---\n`);
-        const view = await makeView(app, mgr);
-        await view.selectChecklist("books");
-        const injected = view.contentEl.querySelector("img[src='x']");
-        expect(injected).toBeNull();
+    it("refresh re-renders the definition list", async () => {
+        let defs = [defBooks];
+        const deps = makeDeps({ getDefinitions: () => defs });
+        const view = await makeView(deps);
+        expect(view.contentEl.querySelectorAll(".checklist-sidebar-row").length).toBe(1);
+
+        defs = [defBooks, defGroceries];
+        view.refresh();
+        expect(view.contentEl.querySelectorAll(".checklist-sidebar-row").length).toBe(2);
     });
 });

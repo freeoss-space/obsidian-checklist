@@ -1,66 +1,89 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, Modal, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_CHECKLIST } from "../constants";
-import type { ChecklistManager } from "../core/checklist-manager";
-import type {
-    ChecklistDefinition,
-    ChecklistItem,
-    FilterOptions,
-    SortOptions,
-} from "../core/types";
-import { filterItems } from "../core/filter";
-import { sortItems } from "../core/sort";
-import { groupItems } from "../core/group";
+import type { ChecklistDefinition } from "../core/types";
 
 /**
- * Callbacks the view needs from the plugin. Keeping this as a plain
- * dependency object instead of a hard reference to `Plugin` lets us
- * unit test the view in isolation.
+ * Callbacks the sidebar view needs from the plugin. Keeping this as a plain
+ * dependency object instead of a hard reference to `Plugin` lets us unit test
+ * the view in isolation.
  */
 export interface ChecklistSidebarDeps {
-    manager: ChecklistManager;
     getDefinitions: () => ChecklistDefinition[];
-    saveSettings: () => Promise<void>;
-    openAddItemModal: (def: ChecklistDefinition) => Promise<void>;
-    openCreateListModal: () => Promise<void>;
-}
-
-interface ViewState {
-    sort: SortOptions;
-    filter: FilterOptions;
-    groupBy: string | null;
-}
-
-function defaultViewState(): ViewState {
-    return {
-        sort: { key: "name", dir: "asc" },
-        filter: { query: "", status: "all" },
-        groupBy: null,
-    };
+    /** Open the native modal for creating a new checklist. */
+    openCreateListModal: () => void;
+    /** Open the native modal for editing an existing checklist's properties. */
+    openEditListModal: (def: ChecklistDefinition) => void;
+    /** Delete the checklist with the given id from settings and disk. */
+    onDeleteList: (id: string) => Promise<void>;
+    /** Open (or focus) the main content view showing items for this checklist. */
+    onSelectList: (id: string) => Promise<void>;
 }
 
 /**
- * The only view the plugin ships. Lives in the LEFT sidebar by design.
+ * Inline confirmation modal shown when the user clicks "Delete" on a list row.
+ * Not exported — it is an implementation detail of the sidebar.
+ */
+class ConfirmDeleteModal extends Modal {
+    private def: ChecklistDefinition;
+    private onConfirm: () => Promise<void>;
+
+    constructor(app: App, def: ChecklistDefinition, onConfirm: () => Promise<void>) {
+        super(app);
+        this.def = def;
+        this.onConfirm = onConfirm;
+    }
+
+    onOpen(): void {
+        // Add a stable class to the modal element so tests can query it.
+        this.modalEl.addClass("confirm-delete-modal");
+        this.titleEl.textContent = "Delete checklist";
+        const c = this.contentEl;
+        c.empty();
+        // textContent only — never innerHTML.
+        const msg = c.createEl("p", { cls: "confirm-delete-message" });
+        msg.textContent = `Delete "${this.def.name}"? This cannot be undone.`;
+
+        const actions = c.createDiv({ cls: "confirm-delete-actions" });
+        const cancelBtn = actions.createEl("button", {
+            text: "Cancel",
+            cls: "confirm-delete-cancel",
+            attr: { type: "button" },
+        });
+        cancelBtn.addEventListener("click", () => this.close());
+
+        const confirmBtn = actions.createEl("button", {
+            text: "Delete",
+            cls: ["confirm-delete-confirm", "mod-warning"],
+            attr: { type: "button" },
+        });
+        confirmBtn.addEventListener("click", async () => {
+            await this.onConfirm();
+            this.close();
+        });
+    }
+
+    onClose(): void {
+        this.contentEl.empty();
+    }
+}
+
+/**
+ * The LEFT sidebar panel. Handles checklist management — creating, editing,
+ * deleting, and navigating to lists.
  *
  * Layout:
- *   ┌──────────────────────────────┐
- *   │  [+ New list]   [dropdown]   │  ← header
- *   ├──────────────────────────────┤
- *   │  [search]  [status][+ Add]   │  ← toolbar
- *   ├──────────────────────────────┤
- *   │  ☐  Apple                    │
- *   │  ☐  Banana       Author      │  ← scrollable list
- *   │  ✓  Cherry                   │
- *   └──────────────────────────────┘
+ *   ┌──────────────────────────┐
+ *   │ Checklists  [+ New list] │  ← header
+ *   ├──────────────────────────┤
+ *   │ Books      [Edit][Delete]│
+ *   │ Groceries  [Edit][Delete]│  ← list rows
+ *   └──────────────────────────┘
+ *
+ * Actual checklist items are rendered in the main content area
+ * (ChecklistMainView). Clicking a row name opens that view.
  */
 export class ChecklistSidebarView extends ItemView {
     private deps: ChecklistSidebarDeps;
-    private activeId: string | null = null;
-    private stateById = new Map<string, ViewState>();
-    private headerEl!: HTMLElement;
-    private toolbarEl!: HTMLElement;
-    private listEl!: HTMLElement;
-    private searchInput!: HTMLInputElement;
-    private statusSelect!: HTMLSelectElement;
 
     constructor(leaf: WorkspaceLeaf, deps: ChecklistSidebarDeps) {
         super(leaf);
@@ -72,7 +95,7 @@ export class ChecklistSidebarView extends ItemView {
     }
 
     getDisplayText(): string {
-        return "Checklist";
+        return "Checklists";
     }
 
     getIcon(): string {
@@ -80,192 +103,92 @@ export class ChecklistSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
-        const root = this.contentEl;
-        root.empty();
-        root.addClass("checklist-plugin-root");
-
-        this.headerEl = root.createDiv({ cls: "checklist-header" });
-        this.toolbarEl = root.createDiv({ cls: "checklist-toolbar" });
-        this.listEl = root.createDiv({ cls: "checklist-list" });
-
-        this.renderHeader();
-        this.renderToolbar();
-
-        const defs = this.deps.getDefinitions();
-        if (defs.length > 0) {
-            await this.selectChecklist(defs[0].id);
-        } else {
-            this.renderEmpty();
-        }
+        this.render();
     }
 
     async onClose(): Promise<void> {
         this.contentEl.empty();
     }
 
-    /** Switch to a different checklist. */
-    async selectChecklist(id: string): Promise<void> {
-        this.activeId = id;
-        if (!this.stateById.has(id)) this.stateById.set(id, defaultViewState());
-        const def = this.definition();
-        if (!def) {
-            this.renderEmpty();
-            return;
-        }
-        await this.deps.manager.loadItems(def);
-        this.renderHeader();
-        this.renderList();
-    }
-
-    /** Re-render only the list portion (called on filter/sort changes). */
+    /**
+     * Re-render the list of definitions (e.g., after a list is added, edited,
+     * or deleted). Called by the plugin after settings change.
+     */
     refresh(): void {
-        if (!this.activeId) return;
-        this.renderList();
+        this.render();
     }
 
-    // ----- rendering -----
+    // ----- private rendering -----
 
-    private renderHeader(): void {
-        this.headerEl.empty();
-        const defs = this.deps.getDefinitions();
-        const left = this.headerEl.createDiv({ cls: "checklist-header-left" });
-        const newBtn = left.createEl("button", { text: "+ New list", cls: "checklist-new-list" });
+    private render(): void {
+        const root = this.contentEl;
+        root.empty();
+        root.addClass("checklist-sidebar-root");
+
+        // Header
+        const header = root.createDiv({ cls: "checklist-sidebar-header" });
+        const newBtn = header.createEl("button", {
+            text: "+ New list",
+            cls: "checklist-new-list",
+            attr: { type: "button" },
+        });
         newBtn.addEventListener("click", () => {
-            void this.deps.openCreateListModal();
+            this.deps.openCreateListModal();
         });
 
-        const select = this.headerEl.createEl("select", { cls: "checklist-picker" });
+        // Definition rows
+        const defs = this.deps.getDefinitions();
         if (defs.length === 0) {
-            select.createEl("option", { text: "No checklists", attr: { value: "" } });
-            select.disabled = true;
-        } else {
-            for (const d of defs) {
-                const opt = select.createEl("option", { text: d.name, attr: { value: d.id } });
-                if (d.id === this.activeId) opt.selected = true;
-            }
-            select.addEventListener("change", () => {
-                void this.selectChecklist(select.value);
+            root.createDiv({
+                cls: "checklist-sidebar-empty",
+                text: "No checklists yet. Click '+ New list' to create one.",
             });
-        }
-    }
-
-    private renderToolbar(): void {
-        this.toolbarEl.empty();
-        this.searchInput = this.toolbarEl.createEl("input", {
-            cls: "checklist-search",
-            attr: { type: "search", placeholder: "Search…" },
-        });
-        this.searchInput.addEventListener("input", () => {
-            const st = this.currentState();
-            if (!st) return;
-            st.filter = { ...st.filter, query: this.searchInput.value };
-            this.refresh();
-        });
-
-        this.statusSelect = this.toolbarEl.createEl("select", { cls: "checklist-status" });
-        for (const [v, label] of [
-            ["all", "All"],
-            ["active", "Active"],
-            ["done", "Done"],
-        ] as const) {
-            this.statusSelect.createEl("option", { text: label, attr: { value: v } });
-        }
-        this.statusSelect.addEventListener("change", () => {
-            const st = this.currentState();
-            if (!st) return;
-            st.filter = { ...st.filter, status: this.statusSelect.value as FilterOptions["status"] };
-            this.refresh();
-        });
-
-        const addBtn = this.toolbarEl.createEl("button", { text: "+ Add", cls: "checklist-add" });
-        addBtn.addEventListener("click", () => {
-            const def = this.definition();
-            if (def) void this.deps.openAddItemModal(def);
-        });
-    }
-
-    private renderEmpty(): void {
-        this.listEl.empty();
-        this.listEl.createDiv({
-            cls: "checklist-empty",
-            text: "No checklists yet. Click '+ New list' to create one.",
-        });
-    }
-
-    private renderList(): void {
-        const def = this.definition();
-        const state = this.currentState();
-        if (!def || !state) {
-            this.renderEmpty();
-            return;
-        }
-        this.listEl.empty();
-        const raw = this.deps.manager.getCachedItems(def);
-        const filtered = filterItems(raw, state.filter);
-        const sorted = sortItems(filtered, state.sort);
-        const groups = groupItems(sorted, state.groupBy);
-
-        if (sorted.length === 0) {
-            this.listEl.createDiv({ cls: "checklist-empty", text: "No items match your filters." });
             return;
         }
 
-        for (const group of groups) {
-            if (state.groupBy !== null) {
-                const header = this.listEl.createDiv({ cls: "checklist-group-header" });
-                header.createEl("span", { text: group.label, cls: "checklist-group-label" });
-                header.createEl("span", { text: `(${group.count})`, cls: "checklist-group-count" });
-            }
-            for (const item of group.items) {
-                this.renderItemRow(def, item);
-            }
+        const listEl = root.createDiv({ cls: "checklist-sidebar-list" });
+        for (const def of defs) {
+            this.renderRow(listEl, def);
         }
     }
 
-    private renderItemRow(def: ChecklistDefinition, item: ChecklistItem): void {
-        const row = this.listEl.createDiv({ cls: "checklist-item" });
-        if (item.completed) row.addClass("is-completed");
+    private renderRow(container: HTMLElement, def: ChecklistDefinition): void {
+        const row = container.createDiv({ cls: "checklist-sidebar-row" });
 
-        if (def.kind === "checklist") {
-            const box = row.createEl("input", {
-                cls: "checklist-checkbox",
-                attr: { type: "checkbox" },
-            });
-            box.checked = item.completed;
-            box.addEventListener("change", async () => {
-                try {
-                    await this.deps.manager.toggleItem(def, item.path);
-                    this.refresh();
-                } catch (err) {
-                    // Surface errors rather than swallowing silently.
-                    console.error("Checklist: toggleItem failed", err);
-                }
-            });
-        } else {
-            row.createEl("span", { cls: "checklist-bullet", text: "•" });
-        }
+        // Name button — opens main view for this list.
+        const nameBtn = row.createEl("button", {
+            cls: "checklist-sidebar-name",
+            attr: { type: "button" },
+        });
+        // textContent only — never innerHTML — to prevent XSS from file names.
+        nameBtn.textContent = def.name;
+        nameBtn.addEventListener("click", () => {
+            void this.deps.onSelectList(def.id);
+        });
 
-        // Name — set via textContent (never innerHTML) to prevent XSS if a
-        // filename contains HTML-like characters.
-        const nameEl = row.createEl("span", { cls: "checklist-item-name" });
-        nameEl.textContent = item.name;
+        // Edit button — opens the EditListModal.
+        const editBtn = row.createEl("button", {
+            text: "Edit",
+            cls: "checklist-sidebar-edit",
+            attr: { type: "button", "aria-label": `Edit ${def.name}` },
+        });
+        editBtn.addEventListener("click", () => {
+            this.deps.openEditListModal(def);
+        });
 
-        // Show property values as subtle metadata chips.
-        for (const p of def.properties) {
-            const v = item.properties[p.key];
-            if (v === undefined || v === null || v === "") continue;
-            const chip = row.createEl("span", { cls: "checklist-item-prop" });
-            chip.textContent = Array.isArray(v) ? v.map(String).join(", ") : String(v);
-        }
-    }
-
-    private currentState(): ViewState | null {
-        if (!this.activeId) return null;
-        return this.stateById.get(this.activeId) || null;
-    }
-
-    private definition(): ChecklistDefinition | null {
-        if (!this.activeId) return null;
-        return this.deps.getDefinitions().find((d) => d.id === this.activeId) || null;
+        // Delete button — opens an inline confirmation modal.
+        const deleteBtn = row.createEl("button", {
+            text: "Delete",
+            cls: "checklist-sidebar-delete",
+            attr: { type: "button", "aria-label": `Delete ${def.name}` },
+        });
+        deleteBtn.addEventListener("click", () => {
+            const modal = new ConfirmDeleteModal(
+                this.app,
+                def,
+                () => this.deps.onDeleteList(def.id)
+            );
+            modal.open();
+        });
     }
 }
