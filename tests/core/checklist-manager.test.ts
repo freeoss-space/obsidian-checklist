@@ -134,6 +134,76 @@ describe("ChecklistManager", () => {
         });
     });
 
+    describe("discoverChecklists", () => {
+        it("discovers folders with .md files under the default folder", async () => {
+            await app.vault.create("Checklists/Groceries/Milk.md", `---\ncompleted: false\n---\n`);
+            await app.vault.create("Checklists/Groceries/Eggs.md", `---\ncompleted: true\n---\n`);
+            await app.vault.create("Checklists/Todo/Task1.md", `---\ncompleted: false\n---\n`);
+
+            const discovered = mgr.discoverChecklists("Checklists", []);
+            const names = discovered.map((d) => d.name).sort();
+            expect(names).toEqual(["Groceries", "Todo"]);
+            expect(discovered[0].kind).toBe("checklist");
+            expect(discovered[0].folder).toMatch(/^Checklists\//);
+            expect(discovered[0].properties).toEqual([]);
+        });
+
+        it("skips folders already covered by existing definitions", async () => {
+            await app.vault.create("Checklists/Groceries/Milk.md", `---\n---\n`);
+            await app.vault.create("Checklists/Todo/Task1.md", `---\n---\n`);
+            const existing: ChecklistDefinition[] = [
+                { id: "groceries", name: "Groceries", kind: "checklist", folder: "Checklists/Groceries", properties: [] },
+            ];
+
+            const discovered = mgr.discoverChecklists("Checklists", existing);
+            expect(discovered.length).toBe(1);
+            expect(discovered[0].name).toBe("Todo");
+        });
+
+        it("discovers root-level folders when defaultFolder is empty", async () => {
+            await app.vault.create("Shopping/Apples.md", `---\n---\n`);
+            await app.vault.create("Reading/Book1.md", `---\n---\n`);
+            await app.vault.create("standalone.md", `---\n---\n`); // root file, no folder
+
+            const discovered = mgr.discoverChecklists("", []);
+            const names = discovered.map((d) => d.name).sort();
+            expect(names).toEqual(["Reading", "Shopping"]);
+            expect(discovered.find((d) => d.name === "Shopping")!.folder).toBe("Shopping");
+        });
+
+        it("ignores nested subfolders (only direct children of defaultFolder)", async () => {
+            await app.vault.create("Checklists/A/B/deep.md", `---\n---\n`);
+            await app.vault.create("Checklists/A/top.md", `---\n---\n`);
+
+            const discovered = mgr.discoverChecklists("Checklists", []);
+            expect(discovered.length).toBe(1);
+            expect(discovered[0].name).toBe("A");
+        });
+
+        it("returns an empty array when no folders match", async () => {
+            const discovered = mgr.discoverChecklists("Checklists", []);
+            expect(discovered).toEqual([]);
+        });
+
+        it("ignores non-.md files", async () => {
+            // getMarkdownFiles only returns .md — so non-md is never seen
+            // but files at the wrong depth should be skipped
+            await app.vault.create("Checklists/top-level.md", `---\n---\n`);
+
+            const discovered = mgr.discoverChecklists("Checklists", []);
+            // top-level.md is directly in Checklists, not in a subfolder
+            expect(discovered).toEqual([]);
+        });
+
+        it("generates a stable id from the folder name", async () => {
+            await app.vault.create("Checklists/My Shopping List/item.md", `---\n---\n`);
+
+            const discovered = mgr.discoverChecklists("Checklists", []);
+            expect(discovered[0].id).toBe("my-shopping-list");
+            expect(discovered[0].name).toBe("My Shopping List");
+        });
+    });
+
     describe("validation", () => {
         it("blocks create when a required property is missing", async () => {
             const def: ChecklistDefinition = {

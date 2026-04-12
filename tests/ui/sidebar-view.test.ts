@@ -107,6 +107,41 @@ describe("ChecklistSidebarView", () => {
         expect((view.contentEl.textContent || "").toLowerCase()).toContain("no checklist");
     });
 
+    it("shows discovered checklists in the dropdown and lists their items", async () => {
+        // Simulate the full flow: files exist on disk, manager discovers them,
+        // and the sidebar shows items from discovered checklists.
+        await app.vault.create("Lists/Groceries/Milk.md", `---\ncompleted: false\n---\n`);
+        await app.vault.create("Lists/Groceries/Eggs.md", `---\ncompleted: true\n---\n`);
+
+        // Discover checklists from "Lists" folder
+        const discovered = mgr.discoverChecklists("Lists", []);
+        expect(discovered.length).toBe(1);
+        expect(discovered[0].name).toBe("Groceries");
+
+        // Build a view using the discovered definition
+        const leaf = new WorkspaceLeaf();
+        const view = new ChecklistSidebarView(leaf, {
+            manager: mgr,
+            getDefinitions: () => discovered,
+            saveSettings: async () => {},
+            openAddItemModal: async () => {},
+            openCreateListModal: async () => {},
+        });
+        await view.onOpen();
+
+        // The dropdown should show "Groceries"
+        const picker = view.contentEl.querySelector("select.checklist-picker") as HTMLSelectElement;
+        const options = Array.from(picker.options).map((o) => o.text);
+        expect(options).toContain("Groceries");
+
+        // Items should be listed
+        const items = view.contentEl.querySelectorAll(".checklist-item");
+        expect(items.length).toBe(2);
+        const names = Array.from(items).map((el: Element) => (el.textContent || "").trim());
+        expect(names.some((t) => t.includes("Milk"))).toBe(true);
+        expect(names.some((t) => t.includes("Eggs"))).toBe(true);
+    });
+
     it("sanitizes item names — renders as text, not HTML", async () => {
         await app.vault.create("Books/<img src=x>.md", `---\ncompleted: false\n---\n`);
         const view = await makeView(app, mgr);
