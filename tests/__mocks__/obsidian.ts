@@ -1,462 +1,249 @@
-// Mock for the Obsidian API used in tests
+/* Minimal Obsidian API mock sufficient for unit tests. */
 
-export class Plugin {
-    app: App;
-    manifest: any;
-
-    constructor(app: App, manifest: any) {
-        this.app = app;
-        this.manifest = manifest;
-    }
-
-    addRibbonIcon(_icon: string, _title: string, _callback: () => void) {
-        return { remove: jest.fn() };
-    }
-
-    registerView(_type: string, _viewCreator: (leaf: WorkspaceLeaf) => ItemView) {}
-
-    addCommand(_command: any) {}
-
-    addSettingTab(_tab: any) {}
-
-    registerEvent(_evt: any) {}
-
-    registerObsidianProtocolHandler(_action: string, _cb: (params: any) => void) {}
-
-    loadData(): Promise<any> {
-        return Promise.resolve(null);
-    }
-
-    saveData(_data: any): Promise<void> {
-        return Promise.resolve();
-    }
+export class Notice {
+    constructor(public message: string, public timeout?: number) {}
 }
 
-export class PluginSettingTab {
-    app: App;
-    plugin: any;
-    containerEl: HTMLElement & { empty(): void };
-    constructor(app: App, plugin: any) {
-        this.app = app;
-        this.plugin = plugin;
-        const el = document.createElement("div") as HTMLElement & { empty(): void };
-        el.empty = function () { this.innerHTML = ""; };
-        this.containerEl = el;
+export class Events {
+    private handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+    on(event: string, cb: (...args: unknown[]) => void): { event: string; cb: (...args: unknown[]) => void } {
+        (this.handlers[event] ||= []).push(cb);
+        return { event, cb };
     }
-    display(): void {}
-    hide(): void {}
-}
-
-export class ItemView {
-    containerEl: HTMLElement;
-    leaf: WorkspaceLeaf;
-
-    constructor(leaf: WorkspaceLeaf) {
-        this.leaf = leaf;
-        this.containerEl = document.createElement("div");
+    off(event: string, cb: (...args: unknown[]) => void): void {
+        this.handlers[event] = (this.handlers[event] || []).filter((h) => h !== cb);
     }
-
-    getViewType(): string {
-        return "";
-    }
-
-    getDisplayText(): string {
-        return "";
-    }
-
-    getIcon(): string {
-        return "";
-    }
-
-    async onOpen(): Promise<void> {}
-
-    async onClose(): Promise<void> {}
-
-    addAction(_icon: string, _title: string, _callback: (evt: MouseEvent) => void): HTMLElement {
-        return document.createElement("button");
-    }
-}
-
-export class Modal {
-    app: App;
-    containerEl: HTMLElement;
-    contentEl: HTMLElement;
-    modalEl: HTMLElement;
-    titleEl: HTMLElement;
-
-    constructor(app: App) {
-        this.app = app;
-        this.containerEl = document.createElement("div");
-        this.contentEl = document.createElement("div");
-        this.modalEl = document.createElement("div");
-        this.titleEl = document.createElement("div");
-    }
-
-    open() {}
-    close() {}
-    onOpen() {}
-    onClose() {}
-}
-
-export class Setting {
-    settingEl: HTMLElement;
-    nameEl: HTMLElement;
-    descEl: HTMLElement;
-    controlEl: HTMLElement;
-    private _name: string = "";
-
-    constructor(containerEl: HTMLElement) {
-        this.settingEl = document.createElement("div");
-        this.nameEl = document.createElement("div");
-        this.descEl = document.createElement("div");
-        this.controlEl = document.createElement("div");
-        this.settingEl.appendChild(this.nameEl);
-        this.settingEl.appendChild(this.descEl);
-        this.settingEl.appendChild(this.controlEl);
-        containerEl.appendChild(this.settingEl);
-    }
-
-    setName(name: string): this {
-        this._name = name;
-        this.nameEl.textContent = name;
-        return this;
-    }
-
-    setDesc(_desc: string): this {
-        return this;
-    }
-
-    addText(cb: (text: TextComponent) => void): this {
-        cb(new TextComponent(this.controlEl));
-        return this;
-    }
-
-    addTextArea(cb: (text: TextAreaComponent) => void): this {
-        cb(new TextAreaComponent(this.controlEl));
-        return this;
-    }
-
-    addButton(cb: (button: ButtonComponent) => void): this {
-        cb(new ButtonComponent(this.controlEl));
-        return this;
-    }
-
-    addDropdown(cb: (dropdown: DropdownComponent) => void): this {
-        cb(new DropdownComponent(this.controlEl));
-        return this;
-    }
-
-    addToggle(cb: (toggle: ToggleComponent) => void): this {
-        cb(new ToggleComponent(this.controlEl));
-        return this;
-    }
-}
-
-export class TextComponent {
-    inputEl: HTMLInputElement;
-    private _value: string = "";
-    private _onChange: ((value: string) => void) | null = null;
-
-    constructor(containerEl: HTMLElement) {
-        this.inputEl = document.createElement("input");
-        this.inputEl.addEventListener("input", () => {
-            this._value = this.inputEl.value;
-            if (this._onChange) this._onChange(this._value);
-        });
-        containerEl.appendChild(this.inputEl);
-    }
-
-    setValue(value: string): this {
-        this._value = value;
-        this.inputEl.value = value;
-        return this;
-    }
-
-    getValue(): string {
-        return this._value;
-    }
-
-    setPlaceholder(_placeholder: string): this {
-        return this;
-    }
-
-    onChange(callback: (value: string) => void): this {
-        this._onChange = callback;
-        return this;
-    }
-}
-
-export class TextAreaComponent {
-    inputEl: HTMLTextAreaElement;
-    private _value: string = "";
-
-    constructor(_containerEl: HTMLElement) {
-        this.inputEl = document.createElement("textarea");
-    }
-
-    setValue(value: string): this {
-        this._value = value;
-        this.inputEl.value = value;
-        return this;
-    }
-
-    getValue(): string {
-        return this._value;
-    }
-
-    setPlaceholder(_placeholder: string): this {
-        return this;
-    }
-
-    onChange(_callback: (value: string) => void): this {
-        return this;
-    }
-}
-
-export class ButtonComponent {
-    buttonEl: HTMLButtonElement;
-
-    constructor(containerEl: HTMLElement) {
-        this.buttonEl = document.createElement("button");
-        containerEl.appendChild(this.buttonEl);
-    }
-
-    setButtonText(_text: string): this {
-        return this;
-    }
-
-    setCta(): this {
-        return this;
-    }
-
-    setWarning(): this {
-        return this;
-    }
-
-    onClick(callback: () => void): this {
-        this.buttonEl.addEventListener("click", callback);
-        return this;
-    }
-
-    setIcon(_icon: string): this {
-        return this;
-    }
-}
-
-export class DropdownComponent {
-    selectEl: HTMLSelectElement;
-    private _value: string = "";
-
-    constructor(_containerEl: HTMLElement) {
-        this.selectEl = document.createElement("select");
-    }
-
-    addOption(value: string, _display: string): this {
-        return this;
-    }
-
-    setValue(value: string): this {
-        this._value = value;
-        return this;
-    }
-
-    getValue(): string {
-        return this._value;
-    }
-
-    onChange(_callback: (value: string) => void): this {
-        return this;
-    }
-}
-
-export class ToggleComponent {
-    toggleEl: HTMLElement;
-    private _value: boolean = false;
-
-    constructor(_containerEl: HTMLElement) {
-        this.toggleEl = document.createElement("div");
-    }
-
-    setValue(value: boolean): this {
-        this._value = value;
-        return this;
-    }
-
-    getValue(): boolean {
-        return this._value;
-    }
-
-    onChange(_callback: (value: boolean) => void): this {
-        return this;
-    }
-}
-
-export class WorkspaceLeaf {
-    view: ItemView;
-
-    constructor() {
-        this.view = new ItemView(this);
-    }
-
-    openFile(_file: TFile): void {}
-
-    setViewState(_state: any): Promise<void> {
-        return Promise.resolve();
+    trigger(event: string, ...args: unknown[]): void {
+        (this.handlers[event] || []).forEach((h) => h(...args));
     }
 }
 
 export class TFile {
-    path: string;
-    basename: string;
-    name: string;
-    extension: string;
-    parent: TFolder | null;
-
-    constructor(path: string = "") {
-        this.path = path;
-        this.basename = path.split("/").pop()?.replace(/\.\w+$/, "") || "";
-        this.name = path.split("/").pop() || "";
-        this.extension = "md";
-        this.parent = null;
+    public basename: string;
+    public extension = "md";
+    public stat: { ctime: number; mtime: number; size: number };
+    constructor(public path: string, mtime = 0, ctime = 0, size = 0) {
+        const name = path.split("/").pop() || path;
+        this.basename = name.replace(/\.md$/, "");
+        this.stat = { ctime, mtime, size };
     }
 }
 
 export class TFolder {
-    path: string;
-    name: string;
-    children: (TFile | TFolder)[];
+    public children: Array<TFile | TFolder> = [];
+    constructor(public path: string) {}
+}
 
-    constructor(path: string = "") {
-        this.path = path;
-        this.name = path.split("/").pop() || "";
-        this.children = [];
+export interface CachedMetadata {
+    frontmatter?: Record<string, unknown>;
+}
+
+export class MetadataCache extends Events {
+    private cache = new Map<string, CachedMetadata>();
+    setCache(path: string, meta: CachedMetadata) {
+        this.cache.set(path, meta);
+    }
+    getFileCache(file: TFile): CachedMetadata | null {
+        return this.cache.get(file.path) || null;
     }
 }
 
-export class Vault {
-    private files: Map<string, string> = new Map();
-    private folders: Set<string> = new Set();
+export class Vault extends Events {
+    private files = new Map<string, { file: TFile; content: string }>();
+    private folders = new Set<string>();
 
-    async create(path: string, content: string): Promise<TFile> {
-        this.files.set(path, content);
-        return new TFile(path);
+    addFile(path: string, content: string): TFile {
+        const file = new TFile(path, Date.now(), Date.now(), content.length);
+        this.files.set(path, { file, content });
+        return file;
+    }
+
+    getAbstractFileByPath(path: string): TFile | TFolder | null {
+        const entry = this.files.get(path);
+        if (entry) return entry.file;
+        if (this.folders.has(path)) return new TFolder(path);
+        return null;
+    }
+
+    getMarkdownFiles(): TFile[] {
+        return Array.from(this.files.values()).map((e) => e.file);
     }
 
     async read(file: TFile): Promise<string> {
-        return this.files.get(file.path) || "";
+        const entry = this.files.get(file.path);
+        if (!entry) throw new Error(`File not found: ${file.path}`);
+        return entry.content;
+    }
+
+    async cachedRead(file: TFile): Promise<string> {
+        return this.read(file);
     }
 
     async modify(file: TFile, content: string): Promise<void> {
-        this.files.set(file.path, content);
+        const entry = this.files.get(file.path);
+        if (!entry) throw new Error(`File not found: ${file.path}`);
+        entry.content = content;
+        file.stat.mtime = Date.now();
+        file.stat.size = content.length;
+        this.trigger("modify", file);
+    }
+
+    async create(path: string, content: string): Promise<TFile> {
+        if (this.files.has(path)) throw new Error(`File exists: ${path}`);
+        const file = this.addFile(path, content);
+        this.trigger("create", file);
+        return file;
     }
 
     async delete(file: TFile): Promise<void> {
         this.files.delete(file.path);
+        this.trigger("delete", file);
     }
 
     async createFolder(path: string): Promise<void> {
         this.folders.add(path);
     }
-
-    getAbstractFileByPath(path: string): TFile | TFolder | null {
-        if (this.files.has(path)) {
-            return new TFile(path);
-        }
-        if (this.folders.has(path)) {
-            return new TFolder(path);
-        }
-        return null;
-    }
-
-    getMarkdownFiles(): TFile[] {
-        return Array.from(this.files.keys()).map((p) => new TFile(p));
-    }
-
-    getFiles(): TFile[] {
-        return this.getMarkdownFiles();
-    }
-
-    getAllLoadedFiles(): (TFile | TFolder)[] {
-        return [
-            ...Array.from(this.folders).map((p) => new TFolder(p)),
-            ...Array.from(this.files.keys()).map((p) => new TFile(p)),
-        ];
-    }
 }
 
-export class MetadataCache {
-    getFileCache(_file: TFile): any {
-        return null;
+export class Workspace extends Events {
+    getLeavesOfType(_type: string): WorkspaceLeaf[] {
+        return [];
     }
-
-    getCache(_path: string): any {
-        return null;
-    }
-}
-
-export class Workspace {
-    private leaves: Map<string, WorkspaceLeaf[]> = new Map();
-
-    getLeavesOfType(type: string): WorkspaceLeaf[] {
-        return this.leaves.get(type) || [];
-    }
-
-    getLeaf(_split?: boolean | string): WorkspaceLeaf {
-        return new WorkspaceLeaf();
-    }
-
     getLeftLeaf(_split: boolean): WorkspaceLeaf {
         return new WorkspaceLeaf();
     }
-
-    getRightLeaf(_split: boolean): WorkspaceLeaf {
-        return new WorkspaceLeaf();
-    }
-
     revealLeaf(_leaf: WorkspaceLeaf): void {}
-
     detachLeavesOfType(_type: string): void {}
+}
 
-    onLayoutReady(_cb: () => void): void {}
+export class WorkspaceLeaf {
+    view: unknown;
+    async setViewState(_state: { type: string; active: boolean }): Promise<void> {}
 }
 
 export class App {
-    vault: Vault;
-    workspace: Workspace;
-    metadataCache: MetadataCache;
+    vault = new Vault();
+    metadataCache = new MetadataCache();
+    workspace = new Workspace();
+}
 
-    constructor() {
-        this.vault = new Vault();
-        this.workspace = new Workspace();
-        this.metadataCache = new MetadataCache();
+export class Component {
+    onload(): void {}
+    onunload(): void {}
+}
+
+export class ItemView extends Component {
+    contentEl: HTMLElement;
+    containerEl: HTMLElement;
+    constructor(public leaf: WorkspaceLeaf) {
+        super();
+        this.containerEl = document.createElement("div");
+        this.contentEl = document.createElement("div");
+        this.containerEl.appendChild(this.contentEl);
+    }
+    getViewType(): string {
+        return "";
+    }
+    getDisplayText(): string {
+        return "";
+    }
+    getIcon(): string {
+        return "";
     }
 }
 
-export class Menu {
-    addItem(cb: (item: MenuItem) => void): this {
-        cb(new MenuItem());
-        return this;
+export class Plugin extends Component {
+    app: App;
+    manifest: { id: string; name: string; version: string };
+    constructor(app: App, manifest: { id: string; name: string; version: string }) {
+        super();
+        this.app = app;
+        this.manifest = manifest;
     }
-
-    showAtMouseEvent(_event: MouseEvent): void {}
+    registerView(_type: string, _factory: (leaf: WorkspaceLeaf) => ItemView): void {}
+    addRibbonIcon(_icon: string, _title: string, _cb: () => void): HTMLElement {
+        return document.createElement("div");
+    }
+    addCommand(_cmd: { id: string; name: string; callback: () => void }): void {}
+    async loadData(): Promise<unknown> {
+        return null;
+    }
+    async saveData(_data: unknown): Promise<void> {}
+    registerEvent(_evt: unknown): void {}
 }
 
-export class MenuItem {
-    setTitle(_title: string): this {
-        return this;
-    }
+// Simple helper the plugin uses for icon rendering in tests
+export function setIcon(el: HTMLElement, icon: string): void {
+    el.setAttribute("data-icon", icon);
+}
 
-    setIcon(_icon: string): this {
-        return this;
-    }
-
-    onClick(_callback: () => void): this {
-        return this;
+// Add DOM helpers used by Obsidian plugins in real code (createEl etc.)
+declare global {
+    interface HTMLElement {
+        createEl<K extends keyof HTMLElementTagNameMap>(
+            tag: K,
+            opts?: { text?: string; cls?: string | string[]; attr?: Record<string, string> }
+        ): HTMLElementTagNameMap[K];
+        createDiv(opts?: { cls?: string | string[]; text?: string }): HTMLDivElement;
+        empty(): void;
+        addClass(cls: string): void;
+        removeClass(cls: string): void;
+        toggleClass(cls: string, force?: boolean): void;
+        setText(text: string): void;
     }
 }
 
-export class Notice {
-    constructor(_message: string, _timeout?: number) {}
+if (typeof HTMLElement !== "undefined") {
+    if (!HTMLElement.prototype.createEl) {
+        HTMLElement.prototype.createEl = function <K extends keyof HTMLElementTagNameMap>(
+            this: HTMLElement,
+            tag: K,
+            opts?: { text?: string; cls?: string | string[]; attr?: Record<string, string> }
+        ): HTMLElementTagNameMap[K] {
+            const el = document.createElement(tag);
+            if (opts?.text !== undefined) el.textContent = opts.text;
+            if (opts?.cls) {
+                const classes = Array.isArray(opts.cls) ? opts.cls : [opts.cls];
+                classes.forEach((c) => el.classList.add(c));
+            }
+            if (opts?.attr) {
+                for (const k of Object.keys(opts.attr)) el.setAttribute(k, opts.attr[k]);
+            }
+            this.appendChild(el);
+            return el;
+        };
+    }
+    if (!HTMLElement.prototype.createDiv) {
+        HTMLElement.prototype.createDiv = function (
+            this: HTMLElement,
+            opts?: { cls?: string | string[]; text?: string }
+        ): HTMLDivElement {
+            return this.createEl("div", opts);
+        };
+    }
+    if (!HTMLElement.prototype.empty) {
+        HTMLElement.prototype.empty = function (this: HTMLElement): void {
+            while (this.firstChild) this.removeChild(this.firstChild);
+        };
+    }
+    if (!HTMLElement.prototype.addClass) {
+        HTMLElement.prototype.addClass = function (this: HTMLElement, cls: string): void {
+            this.classList.add(cls);
+        };
+    }
+    if (!HTMLElement.prototype.removeClass) {
+        HTMLElement.prototype.removeClass = function (this: HTMLElement, cls: string): void {
+            this.classList.remove(cls);
+        };
+    }
+    if (!HTMLElement.prototype.toggleClass) {
+        HTMLElement.prototype.toggleClass = function (this: HTMLElement, cls: string, force?: boolean): void {
+            this.classList.toggle(cls, force);
+        };
+    }
+    if (!HTMLElement.prototype.setText) {
+        HTMLElement.prototype.setText = function (this: HTMLElement, text: string): void {
+            this.textContent = text;
+        };
+    }
 }
-
-export function setIcon(_el: HTMLElement, _icon: string): void {}

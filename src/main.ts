@@ -1,417 +1,167 @@
-import { Plugin, WorkspaceLeaf, Notice, Menu } from "obsidian";
-import { VIEW_TYPE_CHECKLIST, VIEW_TYPE_CHECKLIST_SIDEBAR, ICON_CHECKLIST } from "./constants";
-import { ChecklistView } from "./views/ChecklistView";
-import { ChecklistSidebarView } from "./views/ChecklistSidebarView";
-import { ChecklistManager } from "./services/ChecklistManager";
-import { CreateListModal } from "./modals/CreateListModal";
-import { AddItemModal } from "./modals/AddItemModal";
-import { AddItemsModal } from "./modals/AddItemsModal";
-import { ShareToChecklistModal } from "./modals/ShareToChecklistModal";
-import { ChecklistSettingTab } from "./views/ChecklistSettingTab";
-import {
-    ChecklistPluginSettings,
-    DEFAULT_SETTINGS,
-} from "./models/types";
+import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { VIEW_TYPE_CHECKLIST } from "./constants";
+import { ChecklistManager } from "./core/checklist-manager";
+import { ChecklistSidebarView } from "./ui/sidebar-view";
+import type { ChecklistDefinition } from "./core/types";
+
+interface ChecklistSettings {
+    /** Settings schema version — bump when the shape changes. */
+    settingsVersion: number;
+    definitions: ChecklistDefinition[];
+}
+
+const CURRENT_SETTINGS_VERSION = 1;
+
+const DEFAULT_SETTINGS: ChecklistSettings = {
+    settingsVersion: CURRENT_SETTINGS_VERSION,
+    definitions: [],
+};
+
+/**
+ * Pure settings migration. Each case returns the next version's shape.
+ * Keeping migrations pure means they're trivially unit testable.
+ */
+export function migrateSettings(raw: unknown): ChecklistSettings {
+    if (raw === null || typeof raw !== "object") return { ...DEFAULT_SETTINGS };
+    const obj = raw as Record<string, unknown>;
+    const version = typeof obj.settingsVersion === "number" ? obj.settingsVersion : 0;
+    let settings: ChecklistSettings = {
+        settingsVersion: CURRENT_SETTINGS_VERSION,
+        definitions: Array.isArray(obj.definitions) ? (obj.definitions as ChecklistDefinition[]) : [],
+    };
+    if (version < 1) {
+        // No prior versions; seed with defaults.
+        settings = { ...settings, settingsVersion: 1 };
+    }
+    return settings;
+}
 
 export default class ChecklistPlugin extends Plugin {
-    settings: ChecklistPluginSettings = DEFAULT_SETTINGS;
-    manager: ChecklistManager;
+    settings: ChecklistSettings = { ...DEFAULT_SETTINGS };
+    manager!: ChecklistManager;
 
     async onload(): Promise<void> {
         await this.loadSettings();
+        this.manager = new ChecklistManager(this.app);
 
-        this.manager = new ChecklistManager(this.app, this.settings, () =>
-            this.saveSettings()
+        this.registerView(
+            VIEW_TYPE_CHECKLIST,
+            (leaf) =>
+                new ChecklistSidebarView(leaf, {
+                    manager: this.manager,
+                    getDefinitions: () => this.settings.definitions,
+                    saveSettings: () => this.saveData(this.settings),
+                    openAddItemModal: async (def) => this.quickAddItem(def),
+                    openCreateListModal: async () => this.quickCreateList(),
+                })
         );
 
-        this.addSettingTab(new ChecklistSettingTab(this.app, this));
-
-        // Sidebar view (left) - shows checklist folders
-        this.registerView(VIEW_TYPE_CHECKLIST_SIDEBAR, (leaf: WorkspaceLeaf) => {
-            return new ChecklistSidebarView(
-                leaf,
-                this.manager,
-                (id) => this.selectChecklist(id),
-                () => this.openCreateListModal(),
-                (id) => this.handleDeleteChecklist(id),
-                (id, format) => this.handleExport(id, format)
-            );
+        this.addRibbonIcon("check-square", "Open checklist", async () => {
+            await this.activateView();
         });
 
-        // Main content view - shows items for selected checklist
-        this.registerView(VIEW_TYPE_CHECKLIST, (leaf: WorkspaceLeaf) => {
-            return new ChecklistView(
-                leaf,
-                this.manager,
-                () => this.openAddItemModal(),
-                () => this.openAddItemsModal(),
-                (filePath) => this.handleDeleteItem(filePath),
-                () => this.refreshSidebar(),
-                (format) => {
-                    const active = this.manager.getActiveChecklist();
-                    if (active) this.handleExport(active.id, format);
-                }
-            );
-        });
-
-        await this.ensureSidebarEntry();
-
-        // Ribbon icon opens the sidebar
-        this.addRibbonIcon(ICON_CHECKLIST, "Open Checklist", () => {
-            this.activateSidebar();
-        });
-
-        // Share intent handler (mobile share sheet + protocol handler)
-        this.registerShareIntent();
-
-        // Commands
         this.addCommand({
-            id: "open-checklist-sidebar",
+            id: "checklist-open",
             name: "Open checklist sidebar",
-            callback: () => this.activateSidebar(),
+            callback: async () => this.activateView(),
         });
 
-        this.addCommand({
-            id: "open-checklist-view",
-            name: "Open checklist view",
-            callback: () => this.activateMainView(),
-        });
-
-        this.addCommand({
-            id: "create-new-checklist",
-            name: "Create new checklist",
-            callback: () => this.openCreateListModal(),
-        });
-
-        this.addCommand({
-            id: "add-checklist-item",
-            name: "Add item to active checklist",
-            callback: () => this.openAddItemModal(),
-        });
-
-        this.addCommand({
-            id: "add-checklist-items",
-            name: "Add multiple items to active checklist",
-            callback: () => this.openAddItemsModal(),
-        });
-
-        this.addCommand({
-            id: "export-checklist-markdown",
-            name: "Export active checklist as Markdown",
-            callback: () => {
-                const active = this.manager.getActiveChecklist();
-                if (active) this.handleExport(active.id, "markdown");
-                else new Notice("No active checklist.");
-            },
-        });
-
-        this.addCommand({
-            id: "export-checklist-json",
-            name: "Export active checklist as JSON",
-            callback: () => {
-                const active = this.manager.getActiveChecklist();
-                if (active) this.handleExport(active.id, "json");
-                else new Notice("No active checklist.");
-            },
-        });
-
-        this.addCommand({
-            id: "export-all-checklists-markdown",
-            name: "Export all checklists as Markdown",
-            callback: () => this.handleExport(null, "markdown"),
-        });
-
-        this.addCommand({
-            id: "export-all-checklists-json",
-            name: "Export all checklists as JSON",
-            callback: () => this.handleExport(null, "json"),
-        });
+        // Incremental indexing. Subscribe to vault events and patch the cache.
+        this.registerEvent(
+            this.app.vault.on("create", (file) => this.handleVaultEvent("create", file))
+        );
+        this.registerEvent(
+            this.app.vault.on("modify", (file) => this.handleVaultEvent("modify", file))
+        );
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => this.handleVaultEvent("delete", file))
+        );
     }
 
-    onunload(): void {
-        // Detach open views so the sidebar entry and main view are removed
-        // from the workspace (context menus/sharing intent handlers registered
-        // via registerEvent / registerObsidianProtocolHandler are unregistered
-        // automatically by Obsidian when the plugin unloads).
+    async onunload(): Promise<void> {
         this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST);
-        this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-    }
-
-    /**
-     * Opens the sidebar in the left panel.
-     */
-    async activateSidebar(): Promise<void> {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-
-        if (leaves.length > 0) {
-            this.app.workspace.revealLeaf(leaves[0]);
-            return;
-        }
-
-        const leaf = this.app.workspace.getLeftLeaf(false);
-        if (leaf) {
-            await leaf.setViewState({
-                type: VIEW_TYPE_CHECKLIST_SIDEBAR,
-                active: true,
-            });
-            this.app.workspace.revealLeaf(leaf);
-        }
-    }
-
-    /**
-     * Opens the main checklist view.
-     */
-    async activateMainView(): Promise<void> {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
-
-        if (leaves.length > 0) {
-            this.app.workspace.revealLeaf(leaves[0]);
-            return;
-        }
-
-        const leaf = this.app.workspace.getLeaf(false);
-        if (leaf) {
-            await leaf.setViewState({
-                type: VIEW_TYPE_CHECKLIST,
-                active: true,
-            });
-            this.app.workspace.revealLeaf(leaf);
-        }
-    }
-
-    private async ensureSidebarEntry(): Promise<void> {
-        const sidebarLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-        if (sidebarLeaves.length > 0) return;
-
-        const leaf = this.app.workspace.getLeftLeaf(false);
-        if (!leaf) return;
-
-        await leaf.setViewState({
-            type: VIEW_TYPE_CHECKLIST_SIDEBAR,
-            active: false,
-        });
-    }
-
-    /**
-     * Selects a checklist from the sidebar, sets it active, and opens the main view.
-     */
-    async selectChecklist(id: string): Promise<void> {
-        this.manager.setActiveChecklist(id);
-        await this.activateMainView();
-        this.refreshMainView();
-        this.refreshSidebar();
-    }
-
-    /**
-     * Handles checklist deletion with confirmation.
-     */
-    async handleDeleteChecklist(id: string): Promise<void> {
-        const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
-        if (!checklist) return;
-
-        await this.manager.deleteChecklist(id);
-        new Notice(`Checklist "${checklist.name}" deleted.`);
-        this.refreshSidebar();
-        this.refreshMainView();
-    }
-
-    /**
-     * Handles item deletion.
-     */
-    async handleDeleteItem(filePath: string): Promise<void> {
-        await this.manager.deleteItem(filePath);
-        const name = filePath.split("/").pop()?.replace(/\.md$/, "") || "Item";
-        new Notice(`"${name}" deleted.`);
-        this.refreshMainView();
-        this.refreshSidebar();
-    }
-
-    /**
-     * Exports a checklist (or all checklists) and saves to vault.
-     */
-    async handleExport(id: string | null, format: "markdown" | "json"): Promise<void> {
-        const ext = format === "markdown" ? "md" : "json";
-
-        if (id === null) {
-            // Export all
-            const content = format === "markdown"
-                ? await this.manager.exportAllAsMarkdown()
-                : await this.manager.exportAllAsJson();
-
-            if (!content || content === "") {
-                new Notice("No checklists to export.");
-                return;
-            }
-
-            const filePath = `checklists-export.${ext}`;
-            await this.saveExportFile(filePath, content);
-            new Notice(`All checklists exported to ${filePath}`);
-        } else {
-            // Export single
-            const checklist = this.manager.getSettings().checklists.find((c) => c.id === id);
-            if (!checklist) return;
-
-            const content = format === "markdown"
-                ? await this.manager.exportChecklistAsMarkdown(id)
-                : await this.manager.exportChecklistAsJson(id);
-
-            const safeName = checklist.name.replace(/[\\/:*?"<>|]/g, "-");
-            const filePath = `${safeName}-export.${ext}`;
-            await this.saveExportFile(filePath, content);
-            new Notice(`"${checklist.name}" exported to ${filePath}`);
-        }
-    }
-
-    private async saveExportFile(filePath: string, content: string): Promise<void> {
-        const existing = this.app.vault.getAbstractFileByPath(filePath);
-        if (existing) {
-            await this.app.vault.modify(existing as any, content);
-        } else {
-            await this.app.vault.create(filePath, content);
-        }
-    }
-
-    openCreateListModal(): void {
-        new CreateListModal(this.app, async (name, properties, kind, inlineAddMode) => {
-            const checklist = await this.manager.createChecklist(name, properties, kind);
-            checklist.inlineAddMode = inlineAddMode;
-            await this.saveSettings();
-            new Notice(`${kind === "list" ? "List" : "Checklist"} "${name}" created.`);
-            this.refreshSidebar();
-            await this.activateMainView();
-            this.refreshMainView();
-        }).open();
-    }
-
-    openAddItemModal(): void {
-        const active = this.manager.getActiveChecklist();
-        if (!active) {
-            new Notice("No active checklist. Create one first.");
-            return;
-        }
-
-        new AddItemModal(
-            this.app,
-            active.properties,
-            async (name, properties, description) => {
-                await this.manager.addItem(active.id, name, properties, description);
-                new Notice(`Item "${name}" added.`);
-                this.refreshMainView();
-                this.refreshSidebar();
-            }
-        ).open();
-    }
-
-    openAddItemsModal(): void {
-        const active = this.manager.getActiveChecklist();
-        if (!active) {
-            new Notice("No active checklist. Create one first.");
-            return;
-        }
-
-        new AddItemsModal(
-            this.app,
-            active.properties,
-            async (items) => {
-                const files = await this.manager.addItems(active.id, items);
-                new Notice(`${files.length} item(s) added.`);
-                this.refreshMainView();
-                this.refreshSidebar();
-            }
-        ).open();
-    }
-
-    private refreshMainView(): void {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
-        for (const leaf of leaves) {
-            const view = leaf.view;
-            if (view instanceof ChecklistView) {
-                view.renderView();
-            }
-        }
-    }
-
-    private refreshSidebar(): void {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST_SIDEBAR);
-        for (const leaf of leaves) {
-            const view = leaf.view;
-            if (view instanceof ChecklistSidebarView) {
-                view.renderView();
-            }
-        }
-    }
-
-    private registerShareIntent(): void {
-        // Protocol handler: obsidian://checklist-add?text=...
-        this.registerObsidianProtocolHandler("checklist-add", async (params) => {
-            const text = params.text || params.url || "";
-            if (text) {
-                this.openShareModal(text);
-            }
-        });
-
-        try {
-            // @ts-ignore - Obsidian mobile internal API for share intent
-            if (this.app.isMobile) {
-                const addToChecklistMenuItem = (menu: Menu, text: string) => {
-                    menu.addItem((item: any) => {
-                        item.setTitle("Add to Checklist")
-                            .setIcon(ICON_CHECKLIST)
-                            .onClick(() => {
-                                this.openShareModal(text);
-                            });
-                    });
-                };
-
-                // @ts-ignore
-                this.registerEvent(
-                    // @ts-ignore
-                    this.app.workspace.on("receive-text-menu", addToChecklistMenuItem),
-                );
-
-                // @ts-ignore
-                this.registerEvent(
-                    // @ts-ignore
-                    this.app.workspace.on("receive-url-menu", addToChecklistMenuItem),
-                );
-            }
-        } catch (e) {
-            // Share intent registration skipped (not on mobile or API not available)
-        }
-    }
-
-    openShareModal(sharedText: string): void {
-        new ShareToChecklistModal(
-            this.app,
-            this.manager,
-            sharedText,
-            (checklistId) => {
-                this.manager.setActiveChecklist(checklistId);
-                this.refreshMainView();
-                this.refreshSidebar();
-            }
-        ).open();
     }
 
     async loadSettings(): Promise<void> {
-        const data = await this.loadData();
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-        // Migration: pre-existing checklists default to "checklist" kind.
-        for (const c of this.settings.checklists) {
-            if (!c.kind) c.kind = "checklist";
-            if (!c.inlineAddMode) {
-                c.inlineAddMode = c.properties.length > 0 ? "form" : "simple";
-            }
-        }
+        const raw = await this.loadData();
+        this.settings = migrateSettings(raw);
     }
 
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
     }
 
-    async onChecklistsFolderUpdated(): Promise<void> {
-        await this.manager.syncChecklistsFromFolder(this.settings.checklistsFolder);
-        this.refreshSidebar();
-        this.refreshMainView();
+    /** Open the view in the LEFT sidebar only. */
+    private async activateView(): Promise<void> {
+        const { workspace } = this.app;
+        const existing = workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
+        let leaf: WorkspaceLeaf | null;
+        if (existing.length > 0) {
+            leaf = existing[0];
+        } else {
+            leaf = workspace.getLeftLeaf(false);
+            if (!leaf) {
+                new Notice("Could not open left sidebar leaf");
+                return;
+            }
+            await leaf.setViewState({ type: VIEW_TYPE_CHECKLIST, active: true });
+        }
+        if (leaf) workspace.revealLeaf(leaf);
+    }
+
+    private handleVaultEvent(event: "create" | "modify" | "delete", file: unknown): void {
+        if (!(file instanceof TFile)) return;
+        if (file.extension !== "md") return;
+        let changed = false;
+        for (const def of this.settings.definitions) {
+            if (this.manager.onFileEvent(event, file, def)) changed = true;
+        }
+        if (changed) {
+            const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHECKLIST);
+            for (const leaf of leaves) {
+                const v = leaf.view;
+                if (v instanceof ChecklistSidebarView) v.refresh();
+            }
+        }
+    }
+
+    /**
+     * Temporary lightweight "quick add" — asks via Notice until a modal is
+     * needed. TASKS 3.5 (Quick-add bar) can later route through the toolbar
+     * input directly.
+     */
+    private async quickAddItem(def: ChecklistDefinition): Promise<void> {
+        const name = typeof window !== "undefined" ? window.prompt(`New item in "${def.name}"`) : null;
+        if (!name) return;
+        try {
+            await this.manager.createItem(def, name, {});
+            new Notice(`Added "${name}"`);
+        } catch (err) {
+            new Notice(`Failed to add item: ${(err as Error).message}`);
+        }
+    }
+
+    private async quickCreateList(): Promise<void> {
+        const name = typeof window !== "undefined" ? window.prompt("Name the new checklist:") : null;
+        if (!name) return;
+        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        if (!id) {
+            new Notice("Invalid checklist name");
+            return;
+        }
+        if (this.settings.definitions.find((d) => d.id === id)) {
+            new Notice("A checklist with that id already exists");
+            return;
+        }
+        const def: ChecklistDefinition = {
+            id,
+            name,
+            kind: "checklist",
+            folder: name,
+            properties: [],
+        };
+        this.settings.definitions.push(def);
+        await this.saveSettings();
+        await this.activateView();
     }
 }
